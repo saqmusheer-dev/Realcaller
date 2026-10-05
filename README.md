@@ -26,3 +26,7 @@ The first complete calling build focuses on making SmartCaller the actual phone 
 - Domain: **smartcaller.in**
 - Launcher icon: SmartCaller shield + phone identity mark
 - Repository: `saqmusheer-dev/Realcaller`
+
+## Test milestone
+
+Default-dialer migration completed for the first full calling-app test.
