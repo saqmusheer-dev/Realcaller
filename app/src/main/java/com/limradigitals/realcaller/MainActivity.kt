@@ -40,18 +40,21 @@ import androidx.compose.ui.unit.dp
 import com.limradigitals.realcaller.data.CallerRecord
 import com.limradigitals.realcaller.data.CallerRepository
 import com.limradigitals.realcaller.data.ReputationEngine
+import com.limradigitals.realcaller.screening.RealCallerScreeningService
 
 class MainActivity : ComponentActivity() {
     private lateinit var repository: CallerRepository
     private var searchResult by mutableStateOf<CallerRecord?>(null)
     private var searchNumber by mutableStateOf("")
     private var message by mutableStateOf("SmartCaller is ready")
+    private var diagnostics by mutableStateOf(DiagnosticsState())
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         repository = CallerRepository(applicationContext)
         repository.seedDemoData()
         requestNotificationPermission()
+        refreshDiagnostics()
 
         setContent {
             Surface(color = MaterialTheme.colorScheme.background) {
@@ -60,13 +63,16 @@ class MainActivity : ComponentActivity() {
                     onNumberChange = { searchNumber = it },
                     result = searchResult,
                     message = message,
-                    overlayEnabled = canDrawOverlays(),
+                    overlayEnabled = diagnostics.overlayEnabled,
+                    diagnostics = diagnostics,
                     onSearch = {
                         searchResult = repository.lookup(searchNumber)
                         message = if (searchResult == null) "No local match — cloud lookup will be added in V1.1" else "Local match found instantly"
                     },
                     onSetup = ::requestCallerIdRole,
-                    onOverlaySetup = ::requestOverlayPermission
+                    onOverlaySetup = ::requestOverlayPermission,
+                    onTestOverlay = { RealCallerScreeningService.testOverlay(this) },
+                    onRefreshDiagnostics = ::refreshDiagnostics
                 )
             }
         }
@@ -78,6 +84,11 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         handleUpdateIntent(intent)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (::repository.isInitialized) refreshDiagnostics()
     }
 
     private fun handleUpdateIntent(intent: Intent?) {
@@ -119,11 +130,32 @@ class MainActivity : ComponentActivity() {
             .show()
     }
 
-    override fun onResume() {
-        super.onResume()
-        if (::repository.isInitialized) {
-            message = if (canDrawOverlays()) "SmartCaller overlay is enabled" else "Allow overlay to show SmartCaller over incoming calls"
+    private fun refreshDiagnostics() {
+        val prefs = getSharedPreferences("smartcaller_diagnostics", MODE_PRIVATE)
+        val lastNumber = prefs.getString("last_number", null)
+        val lastAt = prefs.getLong("last_callback_at", 0L)
+        val callbackSeen = lastAt > 0L
+        diagnostics = DiagnosticsState(
+            roleEnabled = isCallScreeningRoleHeld(),
+            overlayEnabled = canDrawOverlays(),
+            notificationEnabled = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+                checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED,
+            callbackSeen = callbackSeen,
+            lastNumber = lastNumber,
+            lastCallbackAt = if (lastAt > 0L) java.text.DateFormat.getTimeInstance().format(java.util.Date(lastAt)) else null
+        )
+        message = when {
+            !diagnostics.roleEnabled -> "Enable SmartCaller as the caller ID & spam protection app first"
+            !diagnostics.overlayEnabled -> "Allow display over other apps"
+            else -> "SmartCaller is ready for a real call"
         }
+    }
+
+    private fun isCallScreeningRoleHeld(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return false
+        val roleManager = getSystemService(RoleManager::class.java)
+        return roleManager.isRoleAvailable(RoleManager.ROLE_CALL_SCREENING) &&
+            roleManager.isRoleHeld(RoleManager.ROLE_CALL_SCREENING)
     }
 
     private fun canDrawOverlays(): Boolean =
@@ -160,7 +192,17 @@ class MainActivity : ComponentActivity() {
         } else {
             message = "Caller screening requires Android 10 or newer"
         }
+        refreshDiagnostics()
     }
+
+    data class DiagnosticsState(
+        val roleEnabled: Boolean = false,
+        val overlayEnabled: Boolean = false,
+        val notificationEnabled: Boolean = false,
+        val callbackSeen: Boolean = false,
+        val lastNumber: String? = null,
+        val lastCallbackAt: String? = null
+    )
 }
 
 @androidx.compose.runtime.Composable
@@ -170,9 +212,12 @@ private fun SmartCallerHome(
     result: CallerRecord?,
     message: String,
     overlayEnabled: Boolean,
+    diagnostics: MainActivity.DiagnosticsState,
     onSearch: () -> Unit,
     onSetup: () -> Unit,
-    onOverlaySetup: () -> Unit
+    onOverlaySetup: () -> Unit,
+    onTestOverlay: () -> Unit,
+    onRefreshDiagnostics: () -> Unit
 ) {
     Column(
         modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
@@ -194,6 +239,22 @@ private fun SmartCallerHome(
                     else "Required for the SmartCaller caller card to appear during an incoming call.",
                     style = MaterialTheme.typography.bodySmall
                 )
+            }
+        }
+
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("SmartCaller Diagnostic", style = MaterialTheme.typography.titleLarge)
+                Text("Caller screening role: ${if (diagnostics.roleEnabled) "🟢 Enabled" else "🔴 Not enabled"}")
+                Text("Overlay permission: ${if (diagnostics.overlayEnabled) "🟢 Enabled" else "🔴 Not enabled"}")
+                Text("Notifications: ${if (diagnostics.notificationEnabled) "🟢 Enabled" else "🔴 Not enabled"}")
+                Text("Screening callback: ${if (diagnostics.callbackSeen) "🟢 Received" else "⚪ Not received yet"}")
+                diagnostics.lastNumber?.let { Text("Last number: $it") }
+                diagnostics.lastCallbackAt?.let { Text("Last callback: $it") }
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedButton(onClick = onRefreshDiagnostics) { Text("Refresh") }
+                    Button(onClick = onTestOverlay) { Text("Test Caller Card") }
+                }
             }
         }
 
