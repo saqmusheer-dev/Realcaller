@@ -19,14 +19,16 @@ import android.telecom.CallScreeningService
 import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
+import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.Toast
 import com.limradigitals.realcaller.MainActivity
 import com.limradigitals.realcaller.R
 import com.limradigitals.realcaller.data.CallerRepository
 import com.limradigitals.realcaller.data.ReputationEngine
 
-/** Local-first V1 call screening with notification + optional on-screen caller card. */
+/** Local-first V1 call screening with notification + actionable caller card. */
 class RealCallerScreeningService : CallScreeningService() {
 
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -115,11 +117,42 @@ class RealCallerScreeningService : CallScreeningService() {
             }
             card.addView(reputationView, matchWrap())
 
+            val actions = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(0, dp(10), 0, 0)
+            }
+
+            val spamButton = Button(this).apply {
+                text = "Mark as spam"
+                isAllCaps = false
+                setOnClickListener {
+                    CallerRepository(applicationContext).markAsSpam(number)
+                    Toast.makeText(context, "Reported to SmartCaller", Toast.LENGTH_SHORT).show()
+                    removeCallerOverlay()
+                }
+            }
+            val updateButton = Button(this).apply {
+                text = "Update call info"
+                isAllCaps = false
+                setOnClickListener {
+                    val intent = Intent(context, MainActivity::class.java).apply {
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                        putExtra("update_number", number)
+                    }
+                    context.startActivity(intent)
+                    removeCallerOverlay()
+                }
+            }
+            actions.addView(spamButton, LinearLayout.LayoutParams(0, dp(48), 1f).apply { marginEnd = dp(5) })
+            actions.addView(updateButton, LinearLayout.LayoutParams(0, dp(48), 1f).apply { marginStart = dp(5) })
+            card.addView(actions, matchWrap())
+
             val footer = TextView(this).apply {
-                text = "Tap to open SmartCaller"
+                text = "Tap the caller card to open SmartCaller"
                 textSize = 13f
                 setTextColor(Color.rgb(100, 110, 120))
-                setPadding(0, dp(7), 0, 0)
+                setPadding(0, dp(5), 0, 0)
             }
             card.addView(footer, matchWrap())
 
@@ -144,7 +177,6 @@ class RealCallerScreeningService : CallScreeningService() {
             ).apply {
                 gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
                 y = dp(54)
-                horizontalMargin = dp(10).toFloat() / resources.displayMetrics.widthPixels
             }
 
             try {
@@ -204,9 +236,7 @@ class RealCallerScreeningService : CallScreeningService() {
 
         val intent = Intent(this, MainActivity::class.java)
         val pendingIntent = PendingIntent.getActivity(
-            this,
-            1001,
-            intent,
+            this, 1001, intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
