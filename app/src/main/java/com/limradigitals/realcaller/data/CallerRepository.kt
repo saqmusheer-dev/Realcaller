@@ -23,5 +23,30 @@ class CallerRepository(context: Context) {
         )
     }
 
+    fun markAsSpam(rawNumber: String) {
+        val normalized = NumberNormalizer.normalize(rawNumber)
+        if (normalized.isEmpty()) return
+        val current = db.findCaller(normalized)
+            ?: CallerRecord(number = normalized)
+        val updated = current.copy(
+            category = "Reported Spam",
+            reputationScore = (current.reputationScore - 25).coerceAtLeast(0),
+            reportCount = current.reportCount + 1
+        )
+        db.upsertCaller(updated)
+    }
+
+    fun updateCallerInfo(rawNumber: String, name: String?, category: String?) {
+        val normalized = NumberNormalizer.normalize(rawNumber)
+        if (normalized.isEmpty()) return
+        val current = db.findCaller(normalized) ?: CallerRecord(number = normalized)
+        db.upsertCaller(
+            current.copy(
+                displayName = name?.trim().takeUnless { it.isNullOrEmpty() } ?: current.displayName,
+                category = category?.trim().takeUnless { it.isNullOrEmpty() } ?: current.category
+            )
+        )
+    }
+
     fun seedDemoData() = db.seedDemoData()
 }
