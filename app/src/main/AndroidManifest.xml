@@ -44,6 +44,10 @@
             android:name=".screening.OverlayTestActivity"
             android:exported="false" />
 
+        <receiver
+            android:name=".CallActionReceiver"
+            android:exported="false" />
+
         <service
             android:name=".screening.RealCallerScreeningService"
             android:exported="true"
