@@ -1,7 +1,10 @@
 package com.limradigitals.realcaller
 
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.telecom.Call
+import android.telecom.CallAudioState
 import android.telecom.VideoProfile
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -11,7 +14,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.CircleShape
@@ -20,7 +22,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -28,13 +29,26 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.delay
 
 class CallActivity : ComponentActivity() {
     private var call by mutableStateOf<Call?>(null)
     private var state by mutableStateOf(Call.STATE_DISCONNECTED)
     private var muted by mutableStateOf(false)
     private var speaker by mutableStateOf(false)
+    private val handler = Handler(Looper.getMainLooper())
+
+    private val poller = object : Runnable {
+        override fun run() {
+            val active = InCallServiceImpl.currentCall
+            call = active
+            state = active?.state ?: Call.STATE_DISCONNECTED
+            if (active == null) {
+                finish()
+                return
+            }
+            handler.postDelayed(this, 250)
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -49,12 +63,8 @@ class CallActivity : ComponentActivity() {
                     state = state,
                     muted = muted,
                     speaker = speaker,
-                    onAnswer = {
-                        call?.answer(VideoProfile.STATE_AUDIO_ONLY)
-                    },
-                    onReject = {
-                        call?.disconnect()
-                    },
+                    onAnswer = { call?.answer(VideoProfile.STATE_AUDIO_ONLY) },
+                    onReject = { call?.disconnect() },
                     onMute = {
                         muted = !muted
                         InCallServiceImpl.instance?.setMuted(muted)
@@ -70,23 +80,12 @@ class CallActivity : ComponentActivity() {
                 )
             }
         }
-
-        startPolling()
+        handler.post(poller)
     }
 
-    private fun startPolling() {
-        lifecycleScope.launchWhenStarted {
-            while (true) {
-                val active = InCallServiceImpl.currentCall
-                call = active
-                state = active?.state ?: Call.STATE_DISCONNECTED
-                if (active == null) {
-                    finish()
-                    break
-                }
-                delay(250)
-            }
-        }
+    override fun onDestroy() {
+        handler.removeCallbacks(poller)
+        super.onDestroy()
     }
 }
 
@@ -148,9 +147,7 @@ private fun CallScreen(
             Spacer(Modifier.height(28.dp))
             Button(
                 onClick = onEnd,
-                modifier = Modifier
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.error)
+                modifier = Modifier.clip(CircleShape).background(MaterialTheme.colorScheme.error)
             ) { Text("End call") }
         } else {
             Spacer(Modifier.height(20.dp))
