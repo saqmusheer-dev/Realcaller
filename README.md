@@ -1,6 +1,6 @@
-# RealCaller
+# SmartCaller
 
-RealCaller is an Android-first caller identification and spam protection platform.
+**SmartCaller — smartcaller.in** is an Android-first caller identification and spam protection platform.
 
 ## V1 architecture
 
@@ -20,6 +20,13 @@ RealCaller is an Android-first caller identification and spam protection platfor
 
 The first release focuses on caller ID, spam protection, reputation, business identification, search, call history, and privacy controls. A full default dialer is intentionally out of scope for V1.
 
+## Branding
+
+- App name: **SmartCaller**
+- Domain: **smartcaller.in**
+- Launcher icon: SmartCaller shield + phone identity mark
+- Repository: `saqmusheer-dev/Realcaller` (kept unchanged for V1 continuity)
+
 ## Planned modules
 
 1. Caller ID engine
@@ -38,4 +45,4 @@ The first release focuses on caller ID, spam protection, reputation, business id
 
 ## Status
 
-V1 foundation — initial repository scaffold.
+V1 foundation — SmartCaller branding applied.
