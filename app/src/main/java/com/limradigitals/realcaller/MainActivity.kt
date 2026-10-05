@@ -36,7 +36,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var repository: CallerRepository
     private var searchResult by mutableStateOf<CallerRecord?>(null)
     private var searchNumber by mutableStateOf("")
-    private var message by mutableStateOf("RealCaller is ready")
+    private var message by mutableStateOf("SmartCaller is ready")
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -45,7 +45,7 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             Surface(color = MaterialTheme.colorScheme.background) {
-                RealCallerHome(
+                SmartCallerHome(
                     searchNumber = searchNumber,
                     onNumberChange = { searchNumber = it },
                     result = searchResult,
@@ -67,9 +67,9 @@ class MainActivity : ComponentActivity() {
                 !roleManager.isRoleHeld(RoleManager.ROLE_CALL_SCREENING)
             ) {
                 startActivityForResult(roleManager.createRequestRoleIntent(RoleManager.ROLE_CALL_SCREENING), 1001)
-                message = "Choose RealCaller as your caller ID & spam protection app"
+                message = "Choose SmartCaller as your caller ID & spam protection app"
             } else {
-                message = "RealCaller is already selected for caller screening"
+                message = "SmartCaller is already selected for caller screening"
             }
         } else {
             message = "Caller screening requires Android 10 or newer"
@@ -78,7 +78,7 @@ class MainActivity : ComponentActivity() {
 }
 
 @androidx.compose.runtime.Composable
-private fun RealCallerHome(
+private fun SmartCallerHome(
     searchNumber: String,
     onNumberChange: (String) -> Unit,
     result: CallerRecord?,
@@ -90,7 +90,7 @@ private fun RealCallerHome(
         modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        Text("RealCaller", style = MaterialTheme.typography.headlineLarge)
+        Text("SmartCaller", style = MaterialTheme.typography.headlineLarge)
         Text("Know who is calling. Block what matters.", style = MaterialTheme.typography.titleMedium)
 
         Card(modifier = Modifier.fillMaxWidth()) {
@@ -98,7 +98,7 @@ private fun RealCallerHome(
                 Text("Caller ID & Spam Shield", style = MaterialTheme.typography.titleLarge)
                 Text("Local-first protection works before cloud enrichment.")
                 Button(onClick = onSetup, modifier = Modifier.fillMaxWidth()) {
-                    Text("Enable RealCaller")
+                    Text("Enable SmartCaller")
                 }
             }
         }
@@ -124,6 +124,7 @@ private fun RealCallerHome(
         Spacer(Modifier.height(6.dp))
         Text(message, style = MaterialTheme.typography.bodyMedium)
         Text("V1 modules: Caller ID • Spam Shield • Reputation • Business Intelligence • Community Reports", style = MaterialTheme.typography.bodySmall)
+        Text("smartcaller.in", style = MaterialTheme.typography.bodySmall)
     }
 }
 
