@@ -10,6 +10,8 @@
 - SmartCaller incoming-call UI with Answer / Decline
 - Ongoing call UI with Mute / Speaker / End call
 - SmartCaller dial pad and outgoing calls through Android Telecom
+- Modern blue + green visual system with a clean, simple dialer layout
+- Call history tabs: All, Missed, Received, and Dialled
 - Recent call history from the system call log
 - Caller search and existing local reputation/caller database
 - Existing caller screening foundation retained for future SmartCaller intelligence
