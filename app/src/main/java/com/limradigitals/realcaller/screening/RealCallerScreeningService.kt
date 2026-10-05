@@ -4,17 +4,34 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
+import android.content.Context
 import android.content.Intent
+import android.graphics.Color
+import android.graphics.PixelFormat
+import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
+import android.provider.Settings
 import android.telecom.Call
 import android.telecom.CallScreeningService
+import android.view.Gravity
+import android.view.View
+import android.view.WindowManager
+import android.widget.LinearLayout
+import android.widget.TextView
 import com.limradigitals.realcaller.MainActivity
 import com.limradigitals.realcaller.R
 import com.limradigitals.realcaller.data.CallerRepository
 import com.limradigitals.realcaller.data.ReputationEngine
 
-/** Local-first V1 call screening with a SmartCaller heads-up notification. */
+/** Local-first V1 call screening with notification + optional on-screen caller card. */
 class RealCallerScreeningService : CallScreeningService() {
+
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private var overlayView: View? = null
+    private var overlayWindowManager: WindowManager? = null
 
     override fun onScreenCall(callDetails: Call.Details) {
         val number = callDetails.handle?.schemeSpecificPart.orEmpty()
@@ -23,6 +40,7 @@ class RealCallerScreeningService : CallScreeningService() {
         repository.recordIncomingCall(number)
 
         showCallerNotification(number, record?.displayName, record?.category, record?.reputationScore, record?.reportCount)
+        showCallerOverlay(number, record?.displayName, record?.category, record?.reputationScore, record?.reportCount)
 
         val response = CallResponse.Builder()
             .setDisallowCall(false)
@@ -34,6 +52,125 @@ class RealCallerScreeningService : CallScreeningService() {
 
         respondToCall(callDetails, response)
     }
+
+    private fun showCallerOverlay(
+        number: String,
+        name: String?,
+        category: String?,
+        reputation: Int?,
+        reports: Int?
+    ) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M || !Settings.canDrawOverlays(this)) return
+
+        mainHandler.post {
+            removeCallerOverlay()
+
+            val card = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(20), dp(16), dp(20), dp(16))
+                background = GradientDrawable().apply {
+                    setColor(Color.WHITE)
+                    cornerRadius = dp(22).toFloat()
+                    setStroke(dp(1), Color.rgb(225, 228, 232))
+                }
+                elevation = dp(10).toFloat()
+            }
+
+            val header = TextView(this).apply {
+                text = "SmartCaller  •  INCOMING CALL"
+                textSize = 14f
+                setTextColor(Color.rgb(35, 45, 55))
+                setTypeface(Typeface.DEFAULT, Typeface.BOLD)
+            }
+            card.addView(header, matchWrap())
+
+            val title = TextView(this).apply {
+                text = name ?: number.ifBlank { "Unknown caller" }
+                textSize = 25f
+                setTextColor(Color.rgb(20, 25, 30))
+                setTypeface(Typeface.DEFAULT, Typeface.BOLD)
+                setPadding(0, dp(5), 0, 0)
+            }
+            card.addView(title, matchWrap())
+
+            val details = buildString {
+                append(number)
+                category?.let { append("  •  ").append(it) }
+            }
+            val detailView = TextView(this).apply {
+                text = details
+                textSize = 14f
+                setTextColor(Color.rgb(85, 95, 105))
+                setPadding(0, dp(3), 0, 0)
+            }
+            card.addView(detailView, matchWrap())
+
+            val score = reputation ?: 50
+            val reputationView = TextView(this).apply {
+                text = "Reputation  $score/100" + if ((reports ?: 0) > 0) "   •   ${reports} reports" else ""
+                textSize = 15f
+                setTextColor(if (score >= 70) Color.rgb(25, 125, 65) else Color.rgb(190, 75, 45))
+                setTypeface(Typeface.DEFAULT, Typeface.BOLD)
+                setPadding(0, dp(9), 0, 0)
+            }
+            card.addView(reputationView, matchWrap())
+
+            val footer = TextView(this).apply {
+                text = "Tap to open SmartCaller"
+                textSize = 13f
+                setTextColor(Color.rgb(100, 110, 120))
+                setPadding(0, dp(7), 0, 0)
+            }
+            card.addView(footer, matchWrap())
+
+            val intent = Intent(this, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            }
+            val pendingIntent = PendingIntent.getActivity(
+                this, 2002, intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            card.setOnClickListener { pendingIntent.send(); removeCallerOverlay() }
+
+            val params = WindowManager.LayoutParams(
+                WindowManager.LayoutParams.MATCH_PARENT,
+                WindowManager.LayoutParams.WRAP_CONTENT,
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+                    WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+                else
+                    @Suppress("DEPRECATION") WindowManager.LayoutParams.TYPE_PHONE,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+                PixelFormat.TRANSLUCENT
+            ).apply {
+                gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+                y = dp(54)
+                horizontalMargin = dp(10).toFloat() / resources.displayMetrics.widthPixels
+            }
+
+            try {
+                overlayWindowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
+                overlayWindowManager?.addView(card, params)
+                overlayView = card
+                mainHandler.postDelayed({ removeCallerOverlay() }, 20000L)
+            } catch (_: Exception) {
+                overlayView = null
+            }
+        }
+    }
+
+    private fun removeCallerOverlay() {
+        mainHandler.post {
+            overlayView?.let { view ->
+                try { overlayWindowManager?.removeView(view) } catch (_: Exception) { }
+            }
+            overlayView = null
+        }
+    }
+
+    private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
+
+    private fun matchWrap(): LinearLayout.LayoutParams =
+        LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
 
     private fun showCallerNotification(
         number: String,
