@@ -13,6 +13,7 @@ import android.telecom.CallAudioState
 import android.telecom.VideoProfile
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -48,10 +49,10 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-private val CallBlue = Color(0xFF1565C0)
-private val CallGreen = Color(0xFF15945B)
-private val CallRed = Color(0xFFD93636)
-private val CallBg = Color(0xFFF6F9FC)
+private val Blue = Color(0xFF0757A6)
+private val Green = Color(0xFF159B5B)
+private val Red = Color(0xFFD93636)
+private val Bg = Color(0xFFF5F8FC)
 
 class CallActivity : ComponentActivity() {
     private var call by mutableStateOf<Call?>(null)
@@ -64,6 +65,10 @@ class CallActivity : ComponentActivity() {
     private var recorder: MediaRecorder? = null
     private var recordingFile: File? = null
     private val handler = Handler(Looper.getMainLooper())
+
+    private val permissionLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) startRecording() else recordMessage = "Microphone permission is required"
+    }
 
     private val poller = object : Runnable {
         override fun run() {
@@ -87,7 +92,7 @@ class CallActivity : ComponentActivity() {
                 android.view.WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
         )
         setContent {
-            Surface(color = CallBg) {
+            Surface(color = Bg) {
                 CallScreen(
                     call = call,
                     state = state,
@@ -123,11 +128,10 @@ class CallActivity : ComponentActivity() {
             return
         }
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-            requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), 5510)
-            recordMessage = "Allow microphone access to start recording"
-            return
+            permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+        } else {
+            startRecording()
         }
-        startRecording()
     }
 
     private fun startRecording() {
@@ -153,8 +157,8 @@ class CallActivity : ComponentActivity() {
             try { recorder?.release() } catch (_: Exception) { }
             recorder = null
             file.delete()
-            recordMessage = "Recording isn't supported for this call on this device"
             recording = false
+            recordMessage = "Call recording is not supported on this device"
         }
     }
 
@@ -167,17 +171,12 @@ class CallActivity : ComponentActivity() {
         if (wasRecording) recordMessage = "Recording saved in SmartCaller"
     }
 
-    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == 5510 && grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) startRecording()
-    }
-
     private fun resolveContactName(number: String): String? {
         if (number.isBlank() || checkSelfPermission(Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED) return null
         return try {
             val uri = Uri.withAppendedPath(ContactsContract.PhoneLookup.CONTENT_FILTER_URI, Uri.encode(number))
-            contentResolver.query(uri, arrayOf(ContactsContract.PhoneLookup.DISPLAY_NAME), null, null, null)?.use {
-                if (it.moveToFirst()) it.getString(0)?.takeIf { n -> n.isNotBlank() } else null
+            contentResolver.query(uri, arrayOf(ContactsContract.PhoneLookup.DISPLAY_NAME), null, null, null)?.use { c ->
+                if (c.moveToFirst()) c.getString(0)?.takeIf { it.isNotBlank() } else null
             }
         } catch (_: Exception) { null }
     }
@@ -219,43 +218,41 @@ private fun CallScreen(
         Call.STATE_DISCONNECTED -> "Call ended"
         else -> "Connecting…"
     }
-    val initials = displayName.trim().split(Regex("\\s+")).let { if (it.size > 1) "${it.first().first()}${it.last().first()}" else it.firstOrNull()?.take(1) ?: "?" }.uppercase()
+    val initials = displayName.trim().split(Regex("\\s+")).let {
+        if (it.size > 1) "${it.first().first()}${it.last().first()}" else it.firstOrNull()?.take(1) ?: "?"
+    }.uppercase()
 
     Column(
-        modifier = Modifier.fillMaxSize().background(CallBg).padding(horizontal = 24.dp, vertical = 28.dp),
+        modifier = Modifier.fillMaxSize().background(Bg).padding(horizontal = 24.dp, vertical = 28.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        Text("SmartCaller", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = CallBlue)
-        Spacer(Modifier.height(26.dp))
+        Text("SmartCaller", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Blue)
+        Spacer(Modifier.height(22.dp))
         Box(
-            Modifier.size(92.dp).clip(CircleShape).background(Color(0xFFE8F1FB)).border(2.dp, Color(0xFFB9D3EE), CircleShape),
+            Modifier.size(96.dp).clip(CircleShape).background(Color(0xFFE7F1FC)).border(2.dp, Color(0xFFB7D1EA), CircleShape),
             contentAlignment = Alignment.Center
-        ) { Text(initials, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold, color = CallBlue) }
-        Spacer(Modifier.height(18.dp))
+        ) { Text(initials, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold, color = Blue) }
+        Spacer(Modifier.height(16.dp))
         Text(displayName, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold, textAlign = TextAlign.Center, color = Color(0xFF17202A))
         if (contactName != null || telecomName != null) {
-            Spacer(Modifier.height(7.dp))
+            Spacer(Modifier.height(6.dp))
             Text(number, style = MaterialTheme.typography.bodyLarge, color = Color(0xFF687684))
-            Spacer(Modifier.height(7.dp))
-            Box(Modifier.clip(RoundedCornerShape(7.dp)).background(Color(0xFFE8F7EF)).padding(horizontal = 9.dp, vertical = 4.dp)) {
-                Text("✓ Contact", color = CallGreen, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelSmall)
-            }
+            Spacer(Modifier.height(6.dp))
+            Text("✓ Contact", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = Green)
         }
         Spacer(Modifier.height(12.dp))
-        Box(Modifier.clip(RoundedCornerShape(30.dp)).background(Color.White).border(1.dp, Color(0xFFD9E2EA), RoundedCornerShape(30.dp)).padding(horizontal = 16.dp, vertical = 7.dp)) {
-            Text(status, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = if (isActive) CallGreen else CallBlue)
-        }
+        Text(status, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = if (isActive) Green else Blue)
         if (recordMessage.isNotBlank() && isActive) {
-            Spacer(Modifier.height(10.dp))
-            Text(recordMessage, color = if (recording) CallRed else Color(0xFF687684), style = MaterialTheme.typography.labelMedium)
+            Spacer(Modifier.height(8.dp))
+            Text(recordMessage, color = if (recording) Red else Color(0xFF687684), style = MaterialTheme.typography.labelMedium)
         }
-        Spacer(Modifier.height(42.dp))
+        Spacer(Modifier.height(38.dp))
 
         if (isRinging) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(18.dp)) {
-                Button(onClick = onReject, modifier = Modifier.weight(1f).height(56.dp), shape = RoundedCornerShape(18.dp), colors = ButtonDefaults.buttonColors(containerColor = CallRed)) { Text("Decline", fontWeight = FontWeight.Bold) }
-                Button(onClick = onAnswer, modifier = Modifier.weight(1f).height(56.dp), shape = RoundedCornerShape(18.dp), colors = ButtonDefaults.buttonColors(containerColor = CallGreen)) { Text("Answer", fontWeight = FontWeight.Bold) }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                Button(onClick = onReject, modifier = Modifier.weight(1f).height(58.dp), shape = RoundedCornerShape(18.dp), colors = ButtonDefaults.buttonColors(containerColor = Red)) { Text("Decline", fontWeight = FontWeight.Bold) }
+                Button(onClick = onAnswer, modifier = Modifier.weight(1f).height(58.dp), shape = RoundedCornerShape(18.dp), colors = ButtonDefaults.buttonColors(containerColor = Green)) { Text("Answer", fontWeight = FontWeight.Bold) }
             }
         } else if (isActive) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -263,13 +260,11 @@ private fun CallScreen(
                 OutlinedButton(onClick = onSpeaker, modifier = Modifier.weight(1f).height(54.dp), shape = RoundedCornerShape(17.dp)) { Text(if (speaker) "Earpiece" else "Speaker") }
             }
             Spacer(Modifier.height(12.dp))
-            OutlinedButton(onClick = onRecord, modifier = Modifier.fillMaxWidth().height(54.dp), shape = RoundedCornerShape(17.dp), colors = ButtonDefaults.outlinedButtonColors(contentColor = if (recording) CallRed else CallBlue)) {
-                Text(if (recording) "■ Stop recording" else "● Record call", fontWeight = FontWeight.Bold)
+            OutlinedButton(onClick = onRecord, modifier = Modifier.fillMaxWidth().height(54.dp), shape = RoundedCornerShape(17.dp)) {
+                Text(if (recording) "■ Stop recording" else "● Record call", fontWeight = FontWeight.Bold, color = if (recording) Red else Blue)
             }
-            Spacer(Modifier.height(22.dp))
-            Button(onClick = onEnd, modifier = Modifier.fillMaxWidth().height(58.dp), shape = RoundedCornerShape(20.dp), colors = ButtonDefaults.buttonColors(containerColor = CallRed)) {
-                Text("End call", fontWeight = FontWeight.ExtraBold)
-            }
+            Spacer(Modifier.height(20.dp))
+            Button(onClick = onEnd, modifier = Modifier.fillMaxWidth().height(58.dp), shape = RoundedCornerShape(20.dp), colors = ButtonDefaults.buttonColors(containerColor = Red)) { Text("End call", fontWeight = FontWeight.ExtraBold) }
         } else {
             OutlinedButton(onClick = onEnd, modifier = Modifier.height(52.dp), shape = RoundedCornerShape(17.dp)) { Text("Cancel") }
         }
