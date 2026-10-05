@@ -48,35 +48,20 @@ dependencies {
     debugImplementation("androidx.compose.ui:ui-tooling")
 }
 
-// Temporary source patch for the current V5 UI while we keep the visual layer frozen.
-// Android Telecom can expose multiple call-capable PhoneAccounts (for example dual SIM).
-// Explicitly passing the system-selected/default outgoing account makes SmartCaller use
-// the same telephony route the system dialer would use instead of relying on implicit routing.
+// Keep the current V5 visual UI frozen while hardening Telecom outgoing-call routing.
 tasks.register("patchOutgoingCallRouting") {
     doLast {
         val source = file("src/main/java/com/limradigitals/realcaller/SmartCallerActivityV5.kt")
-        var text = source.readText()
-        val old = """    private fun placeCall(number: String) {
-        val target = cleanNumber(number)
-        if (target.isBlank()) { status = \"Enter a number\"; return }
-        if (!defaultDialer()) {
-            status = \"Set SmartCaller as default phone first\"
-            if (Build.VERSION.SDK_INT >= 29) {
-                val role = getSystemService(RoleManager::class.java)
-                if (role?.isRoleAvailable(RoleManager.ROLE_DIALER) == true) {
-                    try { startActivityForResult(role.createRequestRoleIntent(RoleManager.ROLE_DIALER), 4401); return } catch (_: Exception) { }
-                }
-            }
-            startActivity(Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS)); return
-        }
-        try { getSystemService(TelecomManager::class.java).placeCall(Uri.fromParts(\"tel\", target, null), Bundle()); status = \"Calling…\" }
-        catch (_: Exception) { status = \"Unable to start call\" }
-    }"""
+        val text = source.readText()
+        val start = text.indexOf("    private fun placeCall(number: String) {")
+        val end = text.indexOf("    private fun loadContacts()", start)
+        if (start < 0 || end < 0) throw GradleException("Outgoing call method boundary not found")
+
         val replacement = """    private fun placeCall(number: String) {
         val target = cleanNumber(number)
-        if (target.isBlank()) { status = \"Enter a number\"; return }
+        if (target.isBlank()) { status = "Enter a number"; return }
         if (!defaultDialer()) {
-            status = \"Set SmartCaller as default phone first\"
+            status = "Set SmartCaller as default phone first"
             if (Build.VERSION.SDK_INT >= 29) {
                 val role = getSystemService(RoleManager::class.java)
                 if (role?.isRoleAvailable(RoleManager.ROLE_DIALER) == true) {
@@ -86,40 +71,39 @@ tasks.register("patchOutgoingCallRouting") {
             startActivity(Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS)); return
         }
         if (checkSelfPermission(Manifest.permission.READ_PHONE_STATE) != PackageManager.PERMISSION_GRANTED) {
-            status = \"Phone permission required\"
+            status = "Phone permission required"
             requestPermissions(arrayOf(Manifest.permission.READ_PHONE_STATE), 4403)
             return
         }
         try {
             val telecom = getSystemService(TelecomManager::class.java)
-            var account = telecom.getDefaultOutgoingPhoneAccount(\"tel\")
+            var account = telecom.getDefaultOutgoingPhoneAccount("tel")
             if (account == null) {
                 val accounts = telecom.getCallCapablePhoneAccounts()
                 if (accounts.size == 1) account = accounts.first()
                 else if (accounts.isEmpty()) {
-                    status = \"No SIM / calling account available\"
+                    status = "No SIM / calling account available"
                     return
                 }
             }
             if (Build.VERSION.SDK_INT >= 26 && account != null && !telecom.isOutgoingCallPermitted(account)) {
-                status = \"Outgoing calls are blocked by phone settings\"
+                status = "Outgoing calls are blocked by phone settings"
                 return
             }
             val extras = Bundle()
             if (account != null) extras.putParcelable(TelecomManager.EXTRA_PHONE_ACCOUNT_HANDLE, account)
-            telecom.placeCall(Uri.fromParts(\"tel\", target, null), extras)
-            status = \"Calling…\"
+            telecom.placeCall(Uri.fromParts("tel", target, null), extras)
+            status = "Calling…"
         } catch (_: SecurityException) {
-            status = \"Phone permission denied\"
+            status = "Phone permission denied"
         } catch (_: Exception) {
-            status = \"Unable to start call\"
+            status = "Unable to start call"
         }
-    }"""
-        if (text.contains(old)) {
-            source.writeText(text.replace(old, replacement))
-        } else if (!text.contains("getDefaultOutgoingPhoneAccount(\"tel\")")) {
-            throw GradleException("SmartCaller outgoing-call source patch target was not found")
-        }
+    }
+
+"""
+        val patched = text.substring(0, start) + replacement + text.substring(end)
+        if (patched != text) source.writeText(patched)
     }
 }
 
