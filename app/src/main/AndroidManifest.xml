@@ -24,6 +24,10 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".screening.OverlayTestActivity"
+            android:exported="false" />
+
         <service
             android:name=".screening.RealCallerScreeningService"
             android:exported="true"
