@@ -4,8 +4,10 @@ import android.Manifest
 import android.app.role.RoleManager
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Arrangement
@@ -21,6 +23,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -53,13 +56,37 @@ class MainActivity : ComponentActivity() {
                     onNumberChange = { searchNumber = it },
                     result = searchResult,
                     message = message,
+                    overlayEnabled = canDrawOverlays(),
                     onSearch = {
                         searchResult = repository.lookup(searchNumber)
                         message = if (searchResult == null) "No local match — cloud lookup will be added in V1.1" else "Local match found instantly"
                     },
-                    onSetup = ::requestCallerIdRole
+                    onSetup = ::requestCallerIdRole,
+                    onOverlaySetup = ::requestOverlayPermission
                 )
             }
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (::repository.isInitialized) {
+            message = if (canDrawOverlays()) "SmartCaller overlay is enabled" else "Allow overlay to show SmartCaller over incoming calls"
+        }
+    }
+
+    private fun canDrawOverlays(): Boolean =
+        Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(this)
+
+    private fun requestOverlayPermission() {
+        if (!canDrawOverlays() && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val intent = Intent(
+                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                Uri.parse("package:$packageName")
+            )
+            startActivity(intent)
+        } else {
+            message = "SmartCaller overlay is enabled"
         }
     }
 
@@ -94,8 +121,10 @@ private fun SmartCallerHome(
     onNumberChange: (String) -> Unit,
     result: CallerRecord?,
     message: String,
+    overlayEnabled: Boolean,
     onSearch: () -> Unit,
-    onSetup: () -> Unit
+    onSetup: () -> Unit,
+    onOverlaySetup: () -> Unit
 ) {
     Column(
         modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
@@ -111,6 +140,14 @@ private fun SmartCallerHome(
                 Button(onClick = onSetup, modifier = Modifier.fillMaxWidth()) {
                     Text("Enable SmartCaller")
                 }
+                OutlinedButton(onClick = onOverlaySetup, modifier = Modifier.fillMaxWidth()) {
+                    Text(if (overlayEnabled) "✓ Display over other apps enabled" else "Allow display over other apps")
+                }
+                Text(
+                    if (overlayEnabled) "SmartCaller can show a caller card above the phone screen."
+                    else "Required for the SmartCaller caller card to appear during an incoming call.",
+                    style = MaterialTheme.typography.bodySmall
+                )
             }
         }
 
@@ -128,9 +165,7 @@ private fun SmartCallerHome(
             TextButton(onClick = { onNumberChange("9999999999") }) { Text("Try demo") }
         }
 
-        result?.let { record ->
-            CallerCard(record)
-        }
+        result?.let { record -> CallerCard(record) }
 
         Spacer(Modifier.height(6.dp))
         Text(message, style = MaterialTheme.typography.bodyMedium)
