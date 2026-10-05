@@ -47,3 +47,82 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     debugImplementation("androidx.compose.ui:ui-tooling")
 }
+
+// Temporary source patch for the current V5 UI while we keep the visual layer frozen.
+// Android Telecom can expose multiple call-capable PhoneAccounts (for example dual SIM).
+// Explicitly passing the system-selected/default outgoing account makes SmartCaller use
+// the same telephony route the system dialer would use instead of relying on implicit routing.
+tasks.register("patchOutgoingCallRouting") {
+    doLast {
+        val source = file("src/main/java/com/limradigitals/realcaller/SmartCallerActivityV5.kt")
+        var text = source.readText()
+        val old = """    private fun placeCall(number: String) {
+        val target = cleanNumber(number)
+        if (target.isBlank()) { status = \"Enter a number\"; return }
+        if (!defaultDialer()) {
+            status = \"Set SmartCaller as default phone first\"
+            if (Build.VERSION.SDK_INT >= 29) {
+                val role = getSystemService(RoleManager::class.java)
+                if (role?.isRoleAvailable(RoleManager.ROLE_DIALER) == true) {
+                    try { startActivityForResult(role.createRequestRoleIntent(RoleManager.ROLE_DIALER), 4401); return } catch (_: Exception) { }
+                }
+            }
+            startActivity(Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS)); return
+        }
+        try { getSystemService(TelecomManager::class.java).placeCall(Uri.fromParts(\"tel\", target, null), Bundle()); status = \"Calling…\" }
+        catch (_: Exception) { status = \"Unable to start call\" }
+    }"""
+        val replacement = """    private fun placeCall(number: String) {
+        val target = cleanNumber(number)
+        if (target.isBlank()) { status = \"Enter a number\"; return }
+        if (!defaultDialer()) {
+            status = \"Set SmartCaller as default phone first\"
+            if (Build.VERSION.SDK_INT >= 29) {
+                val role = getSystemService(RoleManager::class.java)
+                if (role?.isRoleAvailable(RoleManager.ROLE_DIALER) == true) {
+                    try { startActivityForResult(role.createRequestRoleIntent(RoleManager.ROLE_DIALER), 4401); return } catch (_: Exception) { }
+                }
+            }
+            startActivity(Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS)); return
+        }
+        if (checkSelfPermission(Manifest.permission.READ_PHONE_STATE) != PackageManager.PERMISSION_GRANTED) {
+            status = \"Phone permission required\"
+            requestPermissions(arrayOf(Manifest.permission.READ_PHONE_STATE), 4403)
+            return
+        }
+        try {
+            val telecom = getSystemService(TelecomManager::class.java)
+            var account = telecom.getDefaultOutgoingPhoneAccount(\"tel\")
+            if (account == null) {
+                val accounts = telecom.getCallCapablePhoneAccounts()
+                if (accounts.size == 1) account = accounts.first()
+                else if (accounts.isEmpty()) {
+                    status = \"No SIM / calling account available\"
+                    return
+                }
+            }
+            if (Build.VERSION.SDK_INT >= 26 && account != null && !telecom.isOutgoingCallPermitted(account)) {
+                status = \"Outgoing calls are blocked by phone settings\"
+                return
+            }
+            val extras = Bundle()
+            if (account != null) extras.putParcelable(TelecomManager.EXTRA_PHONE_ACCOUNT_HANDLE, account)
+            telecom.placeCall(Uri.fromParts(\"tel\", target, null), extras)
+            status = \"Calling…\"
+        } catch (_: SecurityException) {
+            status = \"Phone permission denied\"
+        } catch (_: Exception) {
+            status = \"Unable to start call\"
+        }
+    }"""
+        if (text.contains(old)) {
+            source.writeText(text.replace(old, replacement))
+        } else if (!text.contains("getDefaultOutgoingPhoneAccount(\"tel\")")) {
+            throw GradleException("SmartCaller outgoing-call source patch target was not found")
+        }
+    }
+}
+
+tasks.named("preBuild") {
+    dependsOn("patchOutgoingCallRouting")
+}
