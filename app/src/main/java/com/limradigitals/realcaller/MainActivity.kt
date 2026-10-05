@@ -1,7 +1,9 @@
 package com.limradigitals.realcaller
 
+import android.Manifest
 import android.app.role.RoleManager
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -42,6 +44,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         repository = CallerRepository(applicationContext)
         repository.seedDemoData()
+        requestNotificationPermission()
 
         setContent {
             Surface(color = MaterialTheme.colorScheme.background) {
@@ -57,6 +60,14 @@ class MainActivity : ComponentActivity() {
                     onSetup = ::requestCallerIdRole
                 )
             }
+        }
+    }
+
+    private fun requestNotificationPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 2001)
         }
     }
 
