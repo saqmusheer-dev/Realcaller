@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- SmartCaller: shield + phone identity mark -->
+    <path
+        android:fillColor="#1565C0"
+        android:pathData="M54,6 L94,20 L94,50 C94,75 77,93 54,102 C31,93 14,75 14,50 L14,20 Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,18 L82,28 L82,50 C82,68 71,82 54,91 C37,82 26,68 26,50 L26,28 Z" />
+    <path
+        android:fillColor="#1565C0"
+        android:pathData="M42,34 C39,34 37,37 38,40 C40,49 47,57 56,63 C63,68 70,70 74,69 C77,68 79,65 78,62 L74,55 C73,53 70,52 68,54 L64,57 C60,55 55,50 52,45 L55,41 C56,39 56,37 54,36 L47,34 Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M67,75 L74,68 L78,72 L71,79 Z" />
+</vector>
