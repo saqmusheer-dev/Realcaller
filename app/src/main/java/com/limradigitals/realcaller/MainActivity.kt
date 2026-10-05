@@ -1,6 +1,7 @@
 package com.limradigitals.realcaller
 
 import android.Manifest
+import android.app.AlertDialog
 import android.app.role.RoleManager
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -8,6 +9,9 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.text.InputType
+import android.widget.EditText
+import android.widget.LinearLayout
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Arrangement
@@ -66,6 +70,53 @@ class MainActivity : ComponentActivity() {
                 )
             }
         }
+
+        handleUpdateIntent(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleUpdateIntent(intent)
+    }
+
+    private fun handleUpdateIntent(intent: Intent?) {
+        val number = intent?.getStringExtra("update_number") ?: return
+        intent.removeExtra("update_number")
+        showUpdateCallInfoDialog(number)
+    }
+
+    private fun showUpdateCallInfoDialog(number: String) {
+        val current = repository.lookup(number)
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(40, 8, 40, 0)
+        }
+        val nameInput = EditText(this).apply {
+            hint = "Caller / business name"
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_WORDS
+            setText(current?.displayName.orEmpty())
+        }
+        val categoryInput = EditText(this).apply {
+            hint = "Category (Business, Delivery, Bank, Spam...)"
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_WORDS
+            setText(current?.category.orEmpty())
+        }
+        container.addView(nameInput)
+        container.addView(categoryInput)
+
+        AlertDialog.Builder(this)
+            .setTitle("Update call information")
+            .setMessage("$number\nHelp SmartCaller improve this caller record.")
+            .setView(container)
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Save") { _, _ ->
+                repository.updateCallerInfo(number, nameInput.text.toString(), categoryInput.text.toString())
+                searchNumber = number
+                searchResult = repository.lookup(number)
+                message = "Caller information updated locally"
+            }
+            .show()
     }
 
     override fun onResume() {
@@ -80,10 +131,7 @@ class MainActivity : ComponentActivity() {
 
     private fun requestOverlayPermission() {
         if (!canDrawOverlays() && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            val intent = Intent(
-                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                Uri.parse("package:$packageName")
-            )
+            val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName"))
             startActivity(intent)
         } else {
             message = "SmartCaller overlay is enabled"
@@ -137,9 +185,7 @@ private fun SmartCallerHome(
             Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text("Caller ID & Spam Shield", style = MaterialTheme.typography.titleLarge)
                 Text("Local-first protection works before cloud enrichment.")
-                Button(onClick = onSetup, modifier = Modifier.fillMaxWidth()) {
-                    Text("Enable SmartCaller")
-                }
+                Button(onClick = onSetup, modifier = Modifier.fillMaxWidth()) { Text("Enable SmartCaller") }
                 OutlinedButton(onClick = onOverlaySetup, modifier = Modifier.fillMaxWidth()) {
                     Text(if (overlayEnabled) "✓ Display over other apps enabled" else "Allow display over other apps")
                 }
