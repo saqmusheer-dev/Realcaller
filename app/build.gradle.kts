@@ -26,7 +26,6 @@ dependencies {
     debugImplementation("androidx.compose.ui:ui-tooling")
 }
 
-// Keep the V5 visual source stable while applying the Telecom fixes and the permanent settings entry before compilation.
 tasks.register("patchSmartCallerSource") {
     doLast {
         val source = file("src/main/java/com/limradigitals/realcaller/SmartCallerActivityV5.kt")
@@ -55,11 +54,11 @@ tasks.register("patchSmartCallerSource") {
         try {
             val telecom = getSystemService(TelecomManager::class.java)
             var account = if (Build.VERSION.SDK_INT >= 29) telecom.getUserSelectedOutgoingPhoneAccount() else null
-            if (account == null) account = telecom.getDefaultOutgoingPhoneAccount(TelecomManager.SCHEME_TEL)
+            if (account == null) account = telecom.getDefaultOutgoingPhoneAccount("tel")
             val accounts = telecom.getCallCapablePhoneAccounts()
             if (account == null && accounts.size > 1) {
-                // With multiple SIMs and no user-selected default, let Telecom show the SIM choice.
-                startActivity(Intent(Intent.ACTION_CALL, Uri.fromParts(TelecomManager.SCHEME_TEL, target, null)))
+                // Multiple SIMs with no selected default: let Telecom present its SIM chooser.
+                startActivity(Intent(Intent.ACTION_CALL, Uri.fromParts("tel", target, null)))
                 status = "Choose SIM to call"
                 return
             }
@@ -67,7 +66,7 @@ tasks.register("patchSmartCallerSource") {
             if (Build.VERSION.SDK_INT >= 26 && account != null && !telecom.isOutgoingCallPermitted(account)) { status = "Outgoing calls are blocked by phone settings"; return }
             val extras = Bundle()
             if (account != null) extras.putParcelable(TelecomManager.EXTRA_PHONE_ACCOUNT_HANDLE, account)
-            telecom.placeCall(Uri.fromParts(TelecomManager.SCHEME_TEL, target, null), extras)
+            telecom.placeCall(Uri.fromParts("tel", target, null), extras)
             status = "Calling…"
         } catch (_: SecurityException) { status = "Phone permission denied" }
         catch (_: Exception) { status = "Unable to start call" }
@@ -75,7 +74,6 @@ tasks.register("patchSmartCallerSource") {
 
 """
         text = text.substring(0, start) + replacement + text.substring(end)
-
         if (!text.contains("SettingsActivity::class.java")) {
             val marker = "            Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {"
             val replacementHeader = """            val settingsContext = androidx.compose.ui.platform.LocalContext.current
