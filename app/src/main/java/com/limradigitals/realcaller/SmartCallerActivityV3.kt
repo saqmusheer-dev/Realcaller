@@ -34,43 +34,571 @@ import com.limradigitals.realcaller.data.CallerRepository
 import java.text.DateFormat
 import java.util.Date
 
-private val V3Blue=Color(0xFF1976D2); private val V3BlueDark=Color(0xFF0D47A1); private val V3Green=Color(0xFF16A05D); private val V3Bg=Color(0xFFF5F8FC); private val V3Text=Color(0xFF17202A); private val V3Muted=Color(0xFF6B7785); private val V3Red=Color(0xFFE53935)
-private data class V3Call(val number:String,val name:String?,val type:String,val date:String,val timestamp:Long,val verified:Boolean)
-private data class V3Group(val key:String,val number:String,val name:String?,val calls:List<V3Call>,val verified:Boolean){val latest get()=calls.maxByOrNull{it.timestamp}?:calls.first();val missed get()=calls.count{it.type=="Missed"}}
-private data class V3Contact(val id:String,val name:String,val number:String)
+private val Blue = Color(0xFF1976D2)
+private val BlueDark = Color(0xFF0D47A1)
+private val Green = Color(0xFF16A05D)
+private val Red = Color(0xFFE53935)
+private val Bg = Color(0xFFF5F8FC)
+private val TextDark = Color(0xFF17202A)
+private val Muted = Color(0xFF6B7785)
 
-class SmartCallerActivityV3:ComponentActivity(){
- private lateinit var repo:CallerRepository; private var phone by mutableStateOf(""); private var status by mutableStateOf("Ready to call"); private var isDefault by mutableStateOf(false); private val calls=mutableStateListOf<V3Call>(); private val contacts=mutableStateListOf<V3Contact>()
- override fun onCreate(b:Bundle?){super.onCreate(b);repo=CallerRepository(applicationContext);repo.seedDemoData();phone=intent?.data?.schemeSpecificPart.orEmpty();isDefault=defaultDialer();permissions();loadCalls();loadContacts();setContent{MaterialTheme(colorScheme=lightColorScheme(primary=V3Blue,secondary=V3Green,background=V3Bg,surface=Color.White,onBackground=V3Text,onSurface=V3Text)){V3Home(phone,{phone=clean(it)},{phone+=it},{if(phone.isNotEmpty())phone=phone.dropLast(1)},::place,::makeDefault,isDefault,status,calls,contacts)}}}
- override fun onResume(){super.onResume();isDefault=defaultDialer();loadCalls();loadContacts()}
- private fun clean(v:String)=v.filter{it.isDigit()||it=='+'||it=='*'||it=='#'}
- private fun defaultDialer():Boolean{if(Build.VERSION.SDK_INT<29)return false;val r=getSystemService(RoleManager::class.java)?:return false;return r.isRoleAvailable(RoleManager.ROLE_DIALER)&&r.isRoleHeld(RoleManager.ROLE_DIALER)}
- private fun makeDefault(){if(defaultDialer){status="SmartCaller is already your default phone";return};if(Build.VERSION.SDK_INT>=29){val r=getSystemService(RoleManager::class.java);if(r?.isRoleAvailable(RoleManager.ROLE_DIALER)==true)try{startActivityForResult(r.createRequestRoleIntent(RoleManager.ROLE_DIALER),4401);return}catch(_:Exception){}};startActivity(Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS))}
- private fun permissions(){val p=buildList{if(checkSelfPermission(Manifest.permission.CALL_PHONE)!=PackageManager.PERMISSION_GRANTED)add(Manifest.permission.CALL_PHONE);if(checkSelfPermission(Manifest.permission.READ_CALL_LOG)!=PackageManager.PERMISSION_GRANTED)add(Manifest.permission.READ_CALL_LOG);if(checkSelfPermission(Manifest.permission.READ_CONTACTS)!=PackageManager.PERMISSION_GRANTED)add(Manifest.permission.READ_CONTACTS);if(checkSelfPermission(Manifest.permission.READ_PHONE_STATE)!=PackageManager.PERMISSION_GRANTED)add(Manifest.permission.READ_PHONE_STATE);if(Build.VERSION.SDK_INT>=33&&checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED)add(Manifest.permission.POST_NOTIFICATIONS)};if(p.isNotEmpty())requestPermissions(p.toTypedArray(),4402)}
- private fun place(){if(phone.isBlank()){status="Enter a phone number";return};if(!defaultDialer){status="Set SmartCaller as default phone first";makeDefault();return};try{getSystemService(TelecomManager::class.java).placeCall(Uri.fromParts("tel",phone,null),Bundle());status="Calling $phone…"}catch(_:Exception){status="Unable to start the call"}}
- private fun loadContacts(){if(checkSelfPermission(Manifest.permission.READ_CONTACTS)!=PackageManager.PERMISSION_GRANTED)return;val m=linkedMapOf<String,V3Contact>();contentResolver.query(ContactsContract.CommonDataKinds.Phone.CONTENT_URI,arrayOf(ContactsContract.CommonDataKinds.Phone.CONTACT_ID,ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME,ContactsContract.CommonDataKinds.Phone.NUMBER),null,null,ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME+" ASC")?.use{c->{val i=c.getColumnIndex(ContactsContract.CommonDataKinds.Phone.CONTACT_ID);val n=c.getColumnIndex(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME);val p=c.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER);while(c.moveToNext()){val name=c.getString(n).orEmpty().trim();val num=c.getString(p).orEmpty().trim();val key=c.getString(i)+"|"+clean(num);if(name.isNotBlank()&&num.isNotBlank())m.putIfAbsent(key,V3Contact(c.getString(i),name,num))}}};contacts.clear();contacts.addAll(m.values)}
- private fun loadCalls(){if(checkSelfPermission(Manifest.permission.READ_CALL_LOG)!=PackageManager.PERMISSION_GRANTED)return;val out=mutableListOf<V3Call>();contentResolver.query(CallLog.Calls.CONTENT_URI,arrayOf(CallLog.Calls.NUMBER,CallLog.Calls.TYPE,CallLog.Calls.DATE,CallLog.Calls.CACHED_NAME),null,null,CallLog.Calls.DATE+" DESC")?.use{c->{val n=c.getColumnIndex(CallLog.Calls.NUMBER);val t=c.getColumnIndex(CallLog.Calls.TYPE);val d=c.getColumnIndex(CallLog.Calls.DATE);val cn=c.getColumnIndex(CallLog.Calls.CACHED_NAME);while(c.moveToNext()&&out.size<150){val num=c.getString(n).orEmpty();val name=if(cn>=0)c.getString(cn)?.takeIf{it.isNotBlank()}else null;val type=when(c.getInt(t)){CallLog.Calls.INCOMING_TYPE->"Received";CallLog.Calls.OUTGOING_TYPE->"Dialled";CallLog.Calls.MISSED_TYPE->"Missed";CallLog.Calls.REJECTED_TYPE->"Rejected";else->"Call"};val ts=c.getLong(d);val verified=try{repo.lookup(num)?.isVerifiedBusiness==true}catch(_:Exception){false};out.add(V3Call(num,name?:findName(num),type,DateFormat.getDateTimeInstance(DateFormat.SHORT,DateFormat.SHORT).format(Date(ts)),ts,verified))}}};calls.clear();calls.addAll(out)}
- private fun findName(num:String):String?{if(checkSelfPermission(Manifest.permission.READ_CONTACTS)!=PackageManager.PERMISSION_GRANTED)return null;return try{val u=Uri.withAppendedPath(ContactsContract.PhoneLookup.CONTENT_FILTER_URI,Uri.encode(num));contentResolver.query(u,arrayOf(ContactsContract.PhoneLookup.DISPLAY_NAME),null,null,null)?.use{if(it.moveToFirst())it.getString(0)else null}}catch(_:Exception){null}}
-}
-private fun key(n:String)=n.filter{it.isDigit()}.let{if(it.length>10)it.takeLast(10)else it}; private fun initials(n:String?)=if(n.isNullOrBlank())"?"else n.trim().split(Regex("\\s+")).let{if(it.size>1)"${it.first().first()}${it.last().first()}".uppercase()else it.first().take(1).uppercase()}
+private data class CallItem(
+    val number: String,
+    val name: String?,
+    val type: String,
+    val date: String,
+    val timestamp: Long,
+    val verified: Boolean
+)
 
-@Composable private fun V3Home(phone:String,onPhone:(String)->Unit,digit:(String)->Unit,back:()->Unit,call:()->Unit,makeDefault:()->Unit,isDefault:Boolean,status:String,raw:List<V3Call>,contacts:List<V3Contact>){var tab by remember{mutableStateOf("All")};var selected by remember{mutableStateOf<V3Group?>(null)};var showContacts by remember{mutableStateOf(false)};var contactSearch by remember{mutableStateOf("")};val filtered=raw.filter{when(tab){"Missed"->it.type=="Missed";"Received"->it.type=="Received";"Dialled"->it.type=="Dialled";else->true}};val groups=filtered.groupBy{key(it.number)}.map{(k,l)->V3Group(k,l.first().number,l.firstOrNull{!it.name.isNullOrBlank()}?.name,l.sortedByDescending{it.timestamp},l.any{it.verified})}.sortedByDescending{it.latest.timestamp};val cs=contacts.filter{contactSearch.isBlank()||it.name.contains(contactSearch,true)||it.number.contains(contactSearch)}
- LazyColumn(Modifier.fillMaxSize().background(V3Bg),contentPadding=PaddingValues(14.dp),verticalArrangement=Arrangement.spacedBy(10.dp)){
-  item{Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){Column(Modifier.weight(1f)){Text("SmartCaller",style=MaterialTheme.typography.headlineMedium,fontWeight=FontWeight.ExtraBold,color=V3BlueDark);Text("Your phone, smarter",color=V3Muted)};Box(Modifier.size(42.dp).clip(CircleShape).background(if(isDefault)V3Green else Color(0xFFE8EEF5)),contentAlignment=Alignment.Center){Text(if(isDefault)"✓":"☎",color=if(isDefault)Color.White else V3Blue,fontWeight=FontWeight.Bold)}}}
-  item{Card(Modifier.fillMaxWidth(),shape=RoundedCornerShape(18.dp),colors=CardDefaults.cardColors(if(isDefault)Color(0xFFE8F7EF)else Color(0xFFEAF3FF))){Row(Modifier.padding(13.dp),verticalAlignment=Alignment.CenterVertically){Column(Modifier.weight(1f)){Text(if(isDefault)"SmartCaller is your default phone" else "Complete your SmartCaller setup",fontWeight=FontWeight.Bold,color=if(isDefault)Color(0xFF087443)else V3BlueDark);Text(if(isDefault)"Calls, contacts and call history are ready."else"Set SmartCaller as your default phone app.",color=V3Muted,style=MaterialTheme.typography.bodySmall)};Button(onClick=makeDefault,shape=RoundedCornerShape(11.dp),colors=ButtonDefaults.buttonColors(if(isDefault)V3Green else V3Blue)){Text(if(isDefault)"Default ✓"else"Set Default")}}}}
-  item{OutlinedTextField(phone,onPhone,Modifier.fillMaxWidth(),singleLine=true,shape=RoundedCornerShape(16.dp),textStyle=MaterialTheme.typography.headlineSmall.copy(textAlign=TextAlign.Center,fontWeight=FontWeight.SemiBold),label={Text("Phone number")},placeholder={Text("Enter number")})}
-  item{Card(Modifier.fillMaxWidth(),shape=RoundedCornerShape(20.dp)){Column(Modifier.padding(10.dp),verticalArrangement=Arrangement.spacedBy(5.dp)){Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){Text("Dial pad",fontWeight=FontWeight.Bold,modifier=Modifier.weight(1f));Text(status,color=V3Muted,style=MaterialTheme.typography.labelSmall)};listOf("1","2","3","4","5","6","7","8","9","*","0","#").chunked(3).forEach{r->Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceEvenly){r.forEach{k->Button({digit(k)},Modifier.size(54.dp),shape=CircleShape,colors=ButtonDefaults.buttonColors(containerColor=Color(0xFFF2F5F8),contentColor=V3Text)){Text(k,style=MaterialTheme.typography.titleLarge)}}}};Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.Center){OutlinedButton(back,Modifier.size(46.dp),shape=CircleShape){Text("⌫")};Spacer(Modifier.width(22.dp));Button(call,Modifier.size(64.dp),shape=CircleShape,colors=ButtonDefaults.buttonColors(V3Green)){Text("☎",color=Color.White,style=MaterialTheme.typography.titleLarge)}}}}}
-  item{Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){Text("Contacts",style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.ExtraBold,modifier=Modifier.weight(1f));TextButton({showContacts=true}){Text("View all")}}}
-  items(contacts.take(4),key={it.id+it.number}){c->ContactCard(c){onPhone(c.number)}}
-  item{Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){Text("Recent calls",style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.ExtraBold,modifier=Modifier.weight(1f));Text("${groups.size} people",color=V3Muted,style=MaterialTheme.typography.labelMedium)}}
-  item{Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Color(0xFFEAF0F6)).padding(4.dp)){listOf("All","Missed","Received","Dialled").forEach{t->Box(Modifier.weight(1f).clip(RoundedCornerShape(11.dp)).background(if(tab==t)V3Blue else Color.Transparent).clickable{tab=t}.padding(vertical=9.dp),contentAlignment=Alignment.Center){Text(t,color=if(tab==t)Color.White else V3Muted,fontWeight=if(tab==t)FontWeight.Bold else FontWeight.Medium,style=MaterialTheme.typography.labelSmall)}}}}
-  items(groups,key={it.key}){g->CallCard(g){selected=g}}
- }
- selected?.let{HistoryDialog(it){selected=null}}
- if(showContacts)AlertDialog(onDismissRequest={showContacts=false},title={Text("Contacts",fontWeight=FontWeight.ExtraBold)},text={Column{OutlinedTextField(contactSearch,{contactSearch=it},Modifier.fillMaxWidth(),singleLine=true,shape=RoundedCornerShape(12.dp),placeholder={Text("Search contacts")});Spacer(Modifier.height(8.dp));LazyColumn(Modifier.heightIn(max=420.dp)){items(cs,key={it.id+it.number}){c->ContactCard(c){onPhone(c.number);showContacts=false}}}}},confirmButton={TextButton({showContacts=false}){Text("Close")}})
+private data class CallGroup(
+    val key: String,
+    val number: String,
+    val name: String?,
+    val calls: List<CallItem>,
+    val verified: Boolean
+) {
+    val latest: CallItem get() = calls.maxByOrNull { it.timestamp } ?: calls.first()
 }
-@Composable private fun Avatar(name:String?,color:Color=V3Blue){Box(Modifier.size(48.dp).clip(RoundedCornerShape(14.dp)).background(color.copy(alpha=.10f)).border(1.dp,color.copy(alpha=.25f),RoundedCornerShape(14.dp)),contentAlignment=Alignment.Center){Text(initials(name),color=color,fontWeight=FontWeight.ExtraBold,style=MaterialTheme.typography.titleMedium)}}
-@Composable private fun Badge(text:String,color:Color=V3Blue){Box(Modifier.clip(RoundedCornerShape(6.dp)).background(color.copy(alpha=.10f)).padding(horizontal=6.dp,vertical=3.dp)){Text(text,color=color,fontWeight=FontWeight.Bold,style=MaterialTheme.typography.labelSmall)}}
-@Composable private fun ContactCard(c:V3Contact,onSelect:()->Unit){Card(Modifier.fillMaxWidth().border(1.dp,Color(0xFFDCE4EC),RoundedCornerShape(15.dp)).clickable{onSelect()},shape=RoundedCornerShape(15.dp)){Row(Modifier.padding(9.dp),verticalAlignment=Alignment.CenterVertically){Avatar(c.name);Spacer(Modifier.width(10.dp));Column(Modifier.weight(1f)){Row(verticalAlignment=Alignment.CenterVertically){Text(c.name,fontWeight=FontWeight.Bold);Spacer(Modifier.width(5.dp));Badge("✓ Contact",V3Green)};Text(c.number,color=V3Muted,style=MaterialTheme.typography.bodySmall)};Text("☎",color=V3Green,fontWeight=FontWeight.Bold,style=MaterialTheme.typography.titleLarge)}}}
-@Composable private fun CallCard(g:V3Group,onOpen:()->Unit){val color=if(g.latest.type=="Missed")V3Red else if(g.latest.type=="Dialled")V3Blue else V3Green;Card(Modifier.fillMaxWidth().border(1.dp,Color(0xFFDCE4EC),RoundedCornerShape(17.dp)).clickable{onOpen()},shape=RoundedCornerShape(17.dp)){Row(Modifier.padding(10.dp),verticalAlignment=Alignment.CenterVertically){Avatar(g.name,color);Spacer(Modifier.width(10.dp));Column(Modifier.weight(1f)){Row(verticalAlignment=Alignment.CenterVertically){Box(Modifier.border(1.dp,Color(0xFFD8E1EA),RoundedCornerShape(7.dp)).padding(horizontal=7.dp,vertical=3.dp)){Text(g.name?:"Unknown caller",fontWeight=FontWeight.Bold)};if(g.verified){Spacer(Modifier.width(5.dp));Badge("✓ Verified",V3Green)};if(g.calls.size>1){Spacer(Modifier.width(5.dp));Badge("${g.calls.size}")}};Text(g.number,color=V3Muted,style=MaterialTheme.typography.bodySmall);Text("${g.latest.type} • ${g.latest.date}",color=color,fontWeight=FontWeight.SemiBold,style=MaterialTheme.typography.labelSmall)};Text("›",color=V3Muted,style=MaterialTheme.typography.headlineSmall)}}}
-@Composable private fun HistoryDialog(g:V3Group,close:()->Unit){AlertDialog(onDismissRequest=close,title={Row(verticalAlignment=Alignment.CenterVertically){Avatar(g.name);Spacer(Modifier.width(10.dp));Column{Row(verticalAlignment=Alignment.CenterVertically){Text(g.name?:"Unknown caller",fontWeight=FontWeight.ExtraBold);if(g.verified){Spacer(Modifier.width(6.dp));Badge("✓ Verified",V3Green)}};Text(g.number,color=V3Muted,style=MaterialTheme.typography.bodySmall)}}},text={Column{Row(horizontalArrangement=Arrangement.spacedBy(6.dp)){Badge("${g.calls.size} calls");if(g.missed>0)Badge("${g.missed} missed",V3Red)};Spacer(Modifier.height(10.dp));Text("Call history",fontWeight=FontWeight.Bold);Spacer(Modifier.height(6.dp));g.calls.forEach{c->val col=if(c.type=="Missed")V3Red else if(c.type=="Dialled")V3Blue else V3Green;Row(Modifier.fillMaxWidth().border(1.dp,Color(0xFFE0E6ED),RoundedCornerShape(10.dp)).padding(8.dp),verticalAlignment=Alignment.CenterVertically){Box(Modifier.size(30.dp).clip(CircleShape).background(col.copy(alpha=.10f)),contentAlignment=Alignment.Center){Text(if(c.type=="Missed")"↙"else if(c.type=="Dialled")"↗"else"↘",color=col,fontWeight=FontWeight.Bold)};Spacer(Modifier.width(8.dp));Column{Text(c.type,color=col,fontWeight=FontWeight.SemiBold);Text(c.date,color=V3Muted,style=MaterialTheme.typography.bodySmall)}}}}},confirmButton={TextButton(close){Text("Close")}})}
+
+private data class ContactItem(val id: String, val name: String, val number: String)
+
+class SmartCallerActivityV3 : ComponentActivity() {
+    private lateinit var repository: CallerRepository
+    private var phone by mutableStateOf("")
+    private var status by mutableStateOf("Ready to call")
+    private var isDefault by mutableStateOf(false)
+    private val callItems = mutableStateListOf<CallItem>()
+    private val contacts = mutableStateListOf<ContactItem>()
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        repository = CallerRepository(applicationContext)
+        try { repository.seedDemoData() } catch (_: Exception) { }
+        phone = intent?.data?.schemeSpecificPart.orEmpty()
+        isDefault = defaultDialer()
+        requestPermissionsIfNeeded()
+        loadCalls()
+        loadContacts()
+        render()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        isDefault = defaultDialer()
+        loadCalls()
+        loadContacts()
+    }
+
+    private fun render() {
+        setContent {
+            MaterialTheme(
+                colorScheme = lightColorScheme(
+                    primary = Blue,
+                    secondary = Green,
+                    background = Bg,
+                    surface = Color.White,
+                    onBackground = TextDark,
+                    onSurface = TextDark
+                )
+            ) {
+                SmartCallerHome(
+                    phone = phone,
+                    onPhoneChange = { phone = cleanNumber(it) },
+                    onDigit = { phone += it },
+                    onBackspace = { if (phone.isNotEmpty()) phone = phone.dropLast(1) },
+                    onCall = ::placeCall,
+                    onMakeDefault = ::makeDefault,
+                    isDefault = isDefault,
+                    status = status,
+                    calls = callItems,
+                    contacts = contacts
+                )
+            }
+        }
+    }
+
+    private fun cleanNumber(value: String): String =
+        value.filter { it.isDigit() || it == '+' || it == '*' || it == '#' }
+
+    private fun defaultDialer(): Boolean {
+        if (Build.VERSION.SDK_INT < 29) return false
+        val roleManager = getSystemService(RoleManager::class.java) ?: return false
+        return roleManager.isRoleAvailable(RoleManager.ROLE_DIALER) &&
+            roleManager.isRoleHeld(RoleManager.ROLE_DIALER)
+    }
+
+    private fun makeDefault() {
+        if (defaultDialer()) {
+            status = "SmartCaller is already your default phone"
+            isDefault = true
+            return
+        }
+        if (Build.VERSION.SDK_INT >= 29) {
+            val roleManager = getSystemService(RoleManager::class.java)
+            if (roleManager?.isRoleAvailable(RoleManager.ROLE_DIALER) == true) {
+                try {
+                    startActivityForResult(
+                        roleManager.createRequestRoleIntent(RoleManager.ROLE_DIALER),
+                        4401
+                    )
+                    return
+                } catch (_: Exception) { }
+            }
+        }
+        startActivity(Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS))
+    }
+
+    private fun requestPermissionsIfNeeded() {
+        val permissions = buildList {
+            if (checkSelfPermission(Manifest.permission.CALL_PHONE) != PackageManager.PERMISSION_GRANTED)
+                add(Manifest.permission.CALL_PHONE)
+            if (checkSelfPermission(Manifest.permission.READ_CALL_LOG) != PackageManager.PERMISSION_GRANTED)
+                add(Manifest.permission.READ_CALL_LOG)
+            if (checkSelfPermission(Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED)
+                add(Manifest.permission.READ_CONTACTS)
+            if (checkSelfPermission(Manifest.permission.READ_PHONE_STATE) != PackageManager.PERMISSION_GRANTED)
+                add(Manifest.permission.READ_PHONE_STATE)
+            if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
+                add(Manifest.permission.POST_NOTIFICATIONS)
+        }
+        if (permissions.isNotEmpty()) requestPermissions(permissions.toTypedArray(), 4402)
+    }
+
+    private fun placeCall() {
+        if (phone.isBlank()) {
+            status = "Enter a phone number"
+            return
+        }
+        if (!defaultDialer()) {
+            status = "Set SmartCaller as default phone first"
+            makeDefault()
+            return
+        }
+        try {
+            getSystemService(TelecomManager::class.java).placeCall(
+                Uri.fromParts("tel", phone, null),
+                Bundle()
+            )
+            status = "Calling $phone…"
+        } catch (_: Exception) {
+            status = "Unable to start the call"
+        }
+    }
+
+    private fun loadContacts() {
+        if (checkSelfPermission(Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED) return
+        val result = linkedMapOf<String, ContactItem>()
+        contentResolver.query(
+            ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
+            arrayOf(
+                ContactsContract.CommonDataKinds.Phone.CONTACT_ID,
+                ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME,
+                ContactsContract.CommonDataKinds.Phone.NUMBER
+            ),
+            null,
+            null,
+            ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME + " ASC"
+        )?.use { cursor ->
+            val idIndex = cursor.getColumnIndex(ContactsContract.CommonDataKinds.Phone.CONTACT_ID)
+            val nameIndex = cursor.getColumnIndex(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME)
+            val numberIndex = cursor.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER)
+            while (cursor.moveToNext()) {
+                val name = cursor.getString(nameIndex).orEmpty().trim()
+                val number = cursor.getString(numberIndex).orEmpty().trim()
+                if (name.isNotBlank() && number.isNotBlank()) {
+                    val id = cursor.getString(idIndex).orEmpty()
+                    result.putIfAbsent("$id|${cleanNumber(number)}", ContactItem(id, name, number))
+                }
+            }
+        }
+        contacts.clear()
+        contacts.addAll(result.values)
+    }
+
+    private fun loadCalls() {
+        if (checkSelfPermission(Manifest.permission.READ_CALL_LOG) != PackageManager.PERMISSION_GRANTED) return
+        val result = mutableListOf<CallItem>()
+        contentResolver.query(
+            CallLog.Calls.CONTENT_URI,
+            arrayOf(
+                CallLog.Calls.NUMBER,
+                CallLog.Calls.TYPE,
+                CallLog.Calls.DATE,
+                CallLog.Calls.CACHED_NAME
+            ),
+            null,
+            null,
+            CallLog.Calls.DATE + " DESC"
+        )?.use { cursor ->
+            val numberIndex = cursor.getColumnIndex(CallLog.Calls.NUMBER)
+            val typeIndex = cursor.getColumnIndex(CallLog.Calls.TYPE)
+            val dateIndex = cursor.getColumnIndex(CallLog.Calls.DATE)
+            val cachedNameIndex = cursor.getColumnIndex(CallLog.Calls.CACHED_NAME)
+            while (cursor.moveToNext() && result.size < 200) {
+                val number = cursor.getString(numberIndex).orEmpty()
+                val cachedName = if (cachedNameIndex >= 0) {
+                    cursor.getString(cachedNameIndex)?.takeIf { it.isNotBlank() }
+                } else null
+                val type = when (cursor.getInt(typeIndex)) {
+                    CallLog.Calls.INCOMING_TYPE -> "Received"
+                    CallLog.Calls.OUTGOING_TYPE -> "Dialled"
+                    CallLog.Calls.MISSED_TYPE -> "Missed"
+                    CallLog.Calls.REJECTED_TYPE -> "Rejected"
+                    else -> "Call"
+                }
+                val timestamp = cursor.getLong(dateIndex)
+                val verified = try {
+                    repository.lookup(number)?.isVerifiedBusiness == true
+                } catch (_: Exception) { false }
+                result.add(
+                    CallItem(
+                        number = number,
+                        name = cachedName ?: findContactName(number),
+                        type = type,
+                        date = DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(timestamp)),
+                        timestamp = timestamp,
+                        verified = verified
+                    )
+                )
+            }
+        }
+        callItems.clear()
+        callItems.addAll(result)
+    }
+
+    private fun findContactName(number: String): String? {
+        if (checkSelfPermission(Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED) return null
+        return try {
+            val uri = Uri.withAppendedPath(
+                ContactsContract.PhoneLookup.CONTENT_FILTER_URI,
+                Uri.encode(number)
+            )
+            contentResolver.query(
+                uri,
+                arrayOf(ContactsContract.PhoneLookup.DISPLAY_NAME),
+                null,
+                null,
+                null
+            )?.use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else null }
+        } catch (_: Exception) { null }
+    }
+}
+
+private fun normalizedKey(number: String): String {
+    val digits = number.filter { it.isDigit() }
+    return if (digits.length > 10) digits.takeLast(10) else digits
+}
+
+private fun initials(name: String?): String {
+    if (name.isNullOrBlank()) return "?"
+    val parts = name.trim().split(Regex("\\s+")).filter { it.isNotBlank() }
+    return if (parts.size > 1) {
+        "${parts.first().first()}${parts.last().first()}".uppercase()
+    } else parts.first().take(1).uppercase()
+}
+
+@Composable
+private fun SmartCallerHome(
+    phone: String,
+    onPhoneChange: (String) -> Unit,
+    onDigit: (String) -> Unit,
+    onBackspace: () -> Unit,
+    onCall: () -> Unit,
+    onMakeDefault: () -> Unit,
+    isDefault: Boolean,
+    status: String,
+    calls: List<CallItem>,
+    contacts: List<ContactItem>
+) {
+    var tab by remember { mutableStateOf("All") }
+    var selectedGroup by remember { mutableStateOf<CallGroup?>(null) }
+    var showContacts by remember { mutableStateOf(false) }
+    var contactSearch by remember { mutableStateOf("") }
+
+    val filteredCalls = calls.filter {
+        when (tab) {
+            "Missed" -> it.type == "Missed"
+            "Received" -> it.type == "Received"
+            "Dialled" -> it.type == "Dialled"
+            else -> true
+        }
+    }
+    val groups = filteredCalls.groupBy { normalizedKey(it.number) }
+        .map { (key, list) ->
+            CallGroup(
+                key = key,
+                number = list.first().number,
+                name = list.firstOrNull { !it.name.isNullOrBlank() }?.name,
+                calls = list.sortedByDescending { it.timestamp },
+                verified = list.any { it.verified }
+            )
+        }
+        .sortedByDescending { it.latest.timestamp }
+    val filteredContacts = contacts.filter {
+        contactSearch.isBlank() || it.name.contains(contactSearch, true) || it.number.contains(contactSearch)
+    }
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize().background(Bg),
+        contentPadding = PaddingValues(14.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        item {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("SmartCaller", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold, color = BlueDark)
+                    Text("Your phone, smarter", color = Muted)
+                }
+                Box(
+                    Modifier.size(42.dp).clip(CircleShape).background(if (isDefault) Green else Color(0xFFE8EEF5)),
+                    contentAlignment = Alignment.Center
+                ) { Text(if (isDefault) "✓" else "☎", color = if (isDefault) Color.White else Blue, fontWeight = FontWeight.Bold) }
+            }
+        }
+
+        item {
+            Card(
+                Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(18.dp),
+                colors = CardDefaults.cardColors(if (isDefault) Color(0xFFE8F7EF) else Color(0xFFEAF3FF))
+            ) {
+                Row(Modifier.padding(13.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            if (isDefault) "SmartCaller is your default phone" else "Complete your SmartCaller setup",
+                            fontWeight = FontWeight.Bold,
+                            color = if (isDefault) Color(0xFF087443) else BlueDark
+                        )
+                        Text(
+                            if (isDefault) "Calls, contacts and call history are ready." else "Set SmartCaller as your default phone app.",
+                            color = Muted,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                    Button(
+                        onClick = onMakeDefault,
+                        shape = RoundedCornerShape(11.dp),
+                        colors = ButtonDefaults.buttonColors(if (isDefault) Green else Blue)
+                    ) { Text(if (isDefault) "Default ✓" else "Set Default") }
+                }
+            }
+        }
+
+        item {
+            OutlinedTextField(
+                value = phone,
+                onValueChange = onPhoneChange,
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                shape = RoundedCornerShape(16.dp),
+                textStyle = MaterialTheme.typography.headlineSmall.copy(textAlign = TextAlign.Center, fontWeight = FontWeight.SemiBold),
+                label = { Text("Phone number") },
+                placeholder = { Text("Enter number") }
+            )
+        }
+
+        item {
+            Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp)) {
+                Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text("Dial pad", fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                        Text(status, color = Muted, style = MaterialTheme.typography.labelSmall)
+                    }
+                    listOf("1","2","3","4","5","6","7","8","9","*","0","#").chunked(3).forEach { row ->
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                            row.forEach { digit ->
+                                Button(
+                                    onClick = { onDigit(digit) },
+                                    modifier = Modifier.size(54.dp),
+                                    shape = CircleShape,
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF2F5F8), contentColor = TextDark)
+                                ) { Text(digit, style = MaterialTheme.typography.titleLarge) }
+                            }
+                        }
+                    }
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+                        OutlinedButton(onClick = onBackspace, modifier = Modifier.size(46.dp), shape = CircleShape) { Text("⌫") }
+                        Spacer(Modifier.width(22.dp))
+                        Button(onClick = onCall, modifier = Modifier.size(64.dp), shape = CircleShape, colors = ButtonDefaults.buttonColors(Green)) {
+                            Text("☎", color = Color.White, style = MaterialTheme.typography.titleLarge)
+                        }
+                    }
+                }
+            }
+        }
+
+        item {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("Contacts", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold, modifier = Modifier.weight(1f))
+                TextButton(onClick = { showContacts = true }) { Text("View all") }
+            }
+        }
+        items(contacts.take(4), key = { it.id + it.number }) { contact ->
+            ContactCard(contact) { onPhoneChange(contact.number) }
+        }
+
+        item {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("Recent calls", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold, modifier = Modifier.weight(1f))
+                Text("${groups.size} people", color = Muted, style = MaterialTheme.typography.labelMedium)
+            }
+        }
+        item {
+            Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Color(0xFFEAF0F6)).padding(4.dp)) {
+                listOf("All", "Missed", "Received", "Dialled").forEach { value ->
+                    Box(
+                        Modifier.weight(1f).clip(RoundedCornerShape(11.dp)).background(if (tab == value) Blue else Color.Transparent).clickable { tab = value }.padding(vertical = 9.dp),
+                        contentAlignment = Alignment.Center
+                    ) { Text(value, color = if (tab == value) Color.White else Muted, fontWeight = if (tab == value) FontWeight.Bold else FontWeight.Medium, style = MaterialTheme.typography.labelSmall) }
+                }
+            }
+        }
+        items(groups, key = { it.key }) { group ->
+            CallCard(group) { selectedGroup = group }
+        }
+    }
+
+    selectedGroup?.let { group -> HistoryDialog(group) { selectedGroup = null } }
+
+    if (showContacts) {
+        AlertDialog(
+            onDismissRequest = { showContacts = false },
+            title = { Text("Contacts", fontWeight = FontWeight.ExtraBold) },
+            text = {
+                Column {
+                    OutlinedTextField(
+                        value = contactSearch,
+                        onValueChange = { contactSearch = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        shape = RoundedCornerShape(12.dp),
+                        placeholder = { Text("Search contacts") }
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    LazyColumn(Modifier.heightIn(max = 420.dp)) {
+                        items(filteredContacts, key = { it.id + it.number }) { contact ->
+                            ContactCard(contact) {
+                                onPhoneChange(contact.number)
+                                showContacts = false
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { showContacts = false }) { Text("Close") } }
+        )
+    }
+}
+
+@Composable
+private fun Avatar(name: String?, color: Color = Blue) {
+    Box(
+        Modifier.size(48.dp).clip(RoundedCornerShape(14.dp)).background(color.copy(alpha = 0.10f)).border(1.dp, color.copy(alpha = 0.25f), RoundedCornerShape(14.dp)),
+        contentAlignment = Alignment.Center
+    ) { Text(initials(name), color = color, fontWeight = FontWeight.ExtraBold, style = MaterialTheme.typography.titleMedium) }
+}
+
+@Composable
+private fun Badge(text: String, color: Color = Blue) {
+    Box(Modifier.clip(RoundedCornerShape(6.dp)).background(color.copy(alpha = 0.10f)).padding(horizontal = 6.dp, vertical = 3.dp)) {
+        Text(text, color = color, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelSmall)
+    }
+}
+
+@Composable
+private fun ContactCard(contact: ContactItem, onSelect: () -> Unit) {
+    Card(
+        Modifier.fillMaxWidth().border(1.dp, Color(0xFFDCE4EC), RoundedCornerShape(15.dp)).clickable(onClick = onSelect),
+        shape = RoundedCornerShape(15.dp)
+    ) {
+        Row(Modifier.padding(9.dp), verticalAlignment = Alignment.CenterVertically) {
+            Avatar(contact.name)
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(contact.name, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.width(5.dp))
+                    Badge("✓ Contact", Green)
+                }
+                Text(contact.number, color = Muted, style = MaterialTheme.typography.bodySmall)
+            }
+            Text("☎", color = Green, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleLarge)
+        }
+    }
+}
+
+@Composable
+private fun CallCard(group: CallGroup, onOpen: () -> Unit) {
+    val color = when (group.latest.type) {
+        "Missed" -> Red
+        "Dialled" -> Blue
+        else -> Green
+    }
+    Card(
+        Modifier.fillMaxWidth().border(1.dp, Color(0xFFDCE4EC), RoundedCornerShape(17.dp)).clickable(onClick = onOpen),
+        shape = RoundedCornerShape(17.dp)
+    ) {
+        Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+            Avatar(group.name, color)
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.border(1.dp, Color(0xFFD8E1EA), RoundedCornerShape(7.dp)).padding(horizontal = 7.dp, vertical = 3.dp)) {
+                        Text(group.name ?: "Unknown caller", fontWeight = FontWeight.Bold)
+                    }
+                    if (group.verified) {
+                        Spacer(Modifier.width(5.dp))
+                        Badge("✓ Verified", Green)
+                    }
+                    if (group.calls.size > 1) {
+                        Spacer(Modifier.width(5.dp))
+                        Badge("${group.calls.size}")
+                    }
+                }
+                Text(group.number, color = Muted, style = MaterialTheme.typography.bodySmall)
+                Text("${group.latest.type} • ${group.latest.date}", color = color, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.labelSmall)
+            }
+            Text("›", color = Muted, style = MaterialTheme.typography.headlineMedium)
+        }
+    }
+}
+
+@Composable
+private fun HistoryDialog(group: CallGroup, onClose: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onClose,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Avatar(group.name)
+                Spacer(Modifier.width(10.dp))
+                Column {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(group.name ?: "Unknown caller", fontWeight = FontWeight.ExtraBold)
+                        if (group.verified) {
+                            Spacer(Modifier.width(5.dp))
+                            Badge("✓ Verified", Green)
+                        }
+                    }
+                    Text(group.number, color = Muted, style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        },
+        text = {
+            Column {
+                Text("${group.calls.size} calls • ${group.calls.count { it.type == "Missed" }} missed", color = Muted, style = MaterialTheme.typography.labelSmall)
+                Spacer(Modifier.height(8.dp))
+                group.calls.forEach { call ->
+                    Row(
+                        Modifier.fillMaxWidth().padding(vertical = 4.dp).border(1.dp, Color(0xFFE0E6EC), RoundedCornerShape(9.dp)).padding(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(call.type, fontWeight = FontWeight.Bold, color = if (call.type == "Missed") Red else if (call.type == "Dialled") Blue else Green, modifier = Modifier.weight(1f))
+                        Text(call.date, color = Muted, style = MaterialTheme.typography.labelSmall)
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onClose) { Text("Close") } }
+    )
+}
