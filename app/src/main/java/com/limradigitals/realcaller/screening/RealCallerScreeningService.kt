@@ -2,23 +2,21 @@ package com.limradigitals.realcaller.screening
 
 import android.telecom.Call
 import android.telecom.CallScreeningService
+import com.limradigitals.realcaller.data.CallerRepository
+import com.limradigitals.realcaller.data.ReputationEngine
 
-/**
- * V1 entry point for Android's call-screening framework.
- *
- * Keep this service fast and local-first. Network/business enrichment must never
- * be required to make the initial screening decision.
- */
+/** Local-first V1 call screening. No network request is required for the decision. */
 class RealCallerScreeningService : CallScreeningService() {
     override fun onScreenCall(callDetails: Call.Details) {
         val number = callDetails.handle?.schemeSpecificPart.orEmpty()
+        val repository = CallerRepository(applicationContext)
+        val record = repository.lookup(number)
+        repository.recordIncomingCall(number)
 
-        // V1 foundation: allow by default until the local reputation engine is wired in.
-        // Future flow: normalize -> local lookup -> reputation -> business card -> decision.
         val response = CallResponse.Builder()
             .setDisallowCall(false)
             .setRejectCall(false)
-            .setSilenceCall(false)
+            .setSilenceCall(ReputationEngine.shouldSilence(record))
             .setSkipCallLog(false)
             .setSkipNotification(false)
             .build()
