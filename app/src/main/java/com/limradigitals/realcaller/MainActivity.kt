@@ -1,17 +1,14 @@
 package com.limradigitals.realcaller
 
 import android.Manifest
-import android.app.AlertDialog
 import android.app.role.RoleManager
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
-import android.provider.Settings
-import android.text.InputType
-import android.widget.EditText
-import android.widget.LinearLayout
+import android.provider.CallLog
+import android.telecom.TelecomManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Arrangement
@@ -31,8 +28,8 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -40,260 +37,234 @@ import androidx.compose.ui.unit.dp
 import com.limradigitals.realcaller.data.CallerRecord
 import com.limradigitals.realcaller.data.CallerRepository
 import com.limradigitals.realcaller.data.ReputationEngine
-import com.limradigitals.realcaller.screening.RealCallerScreeningService
 
 class MainActivity : ComponentActivity() {
     private lateinit var repository: CallerRepository
-    private var searchResult by mutableStateOf<CallerRecord?>(null)
+    private var number by mutableStateOf("")
     private var searchNumber by mutableStateOf("")
-    private var message by mutableStateOf("SmartCaller is ready")
-    private var diagnostics by mutableStateOf(DiagnosticsState())
+    private var searchResult by mutableStateOf<CallerRecord?>(null)
+    private var status by mutableStateOf("SmartCaller is ready")
+    private var logs = mutableStateListOf<CallLogItem>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         repository = CallerRepository(applicationContext)
         repository.seedDemoData()
-        requestNotificationPermission()
-        refreshDiagnostics()
+        number = intent?.data?.schemeSpecificPart.orEmpty()
+        requestBasicPermissions()
+        refreshCallLogs()
 
         setContent {
             Surface(color = MaterialTheme.colorScheme.background) {
                 SmartCallerHome(
+                    number = number,
+                    onNumberChange = { number = it.filter { ch -> ch.isDigit() || ch == '+' || ch == '*' || ch == '#' } },
+                    onCall = ::placeCall,
+                    onMakeDefault = ::requestDefaultDialer,
+                    isDefault = isDefaultDialer(),
+                    status = status,
+                    logs = logs,
                     searchNumber = searchNumber,
-                    onNumberChange = { searchNumber = it },
-                    result = searchResult,
-                    message = message,
-                    overlayEnabled = diagnostics.overlayEnabled,
-                    diagnostics = diagnostics,
+                    onSearchNumberChange = { searchNumber = it },
+                    searchResult = searchResult,
                     onSearch = {
                         searchResult = repository.lookup(searchNumber)
-                        message = if (searchResult == null) "No local match — cloud lookup will be added in V1.1" else "Local match found instantly"
-                    },
-                    onSetup = ::requestCallerIdRole,
-                    onOverlaySetup = ::requestOverlayPermission,
-                    onTestOverlay = { RealCallerScreeningService.testOverlay(this) },
-                    onRefreshDiagnostics = ::refreshDiagnostics
+                    }
                 )
             }
         }
-
-        handleUpdateIntent(intent)
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        handleUpdateIntent(intent)
+        number = intent.data?.schemeSpecificPart.orEmpty()
     }
 
     override fun onResume() {
         super.onResume()
-        if (::repository.isInitialized) refreshDiagnostics()
+        refreshCallLogs()
     }
 
-    private fun handleUpdateIntent(intent: Intent?) {
-        val number = intent?.getStringExtra("update_number") ?: return
-        intent.removeExtra("update_number")
-        showUpdateCallInfoDialog(number)
-    }
-
-    private fun showUpdateCallInfoDialog(number: String) {
-        val current = repository.lookup(number)
-        val container = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(40, 8, 40, 0)
-        }
-        val nameInput = EditText(this).apply {
-            hint = "Caller / business name"
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_WORDS
-            setText(current?.displayName.orEmpty())
-        }
-        val categoryInput = EditText(this).apply {
-            hint = "Category (Business, Delivery, Bank, Spam...)"
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_WORDS
-            setText(current?.category.orEmpty())
-        }
-        container.addView(nameInput)
-        container.addView(categoryInput)
-
-        AlertDialog.Builder(this)
-            .setTitle("Update call information")
-            .setMessage("$number\nHelp SmartCaller improve this caller record.")
-            .setView(container)
-            .setNegativeButton("Cancel", null)
-            .setPositiveButton("Save") { _, _ ->
-                repository.updateCallerInfo(number, nameInput.text.toString(), categoryInput.text.toString())
-                searchNumber = number
-                searchResult = repository.lookup(number)
-                message = "Caller information updated locally"
-            }
-            .show()
-    }
-
-    private fun refreshDiagnostics() {
-        val prefs = getSharedPreferences("smartcaller_diagnostics", MODE_PRIVATE)
-        val lastNumber = prefs.getString("last_number", null)
-        val lastAt = prefs.getLong("last_callback_at", 0L)
-        val callbackSeen = lastAt > 0L
-        diagnostics = DiagnosticsState(
-            roleEnabled = isCallScreeningRoleHeld(),
-            overlayEnabled = canDrawOverlays(),
-            notificationEnabled = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
-                checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED,
-            callbackSeen = callbackSeen,
-            lastNumber = lastNumber,
-            lastCallbackAt = if (lastAt > 0L) java.text.DateFormat.getTimeInstance().format(java.util.Date(lastAt)) else null
-        )
-        message = when {
-            !diagnostics.roleEnabled -> "Enable SmartCaller as the caller ID & spam protection app first"
-            !diagnostics.overlayEnabled -> "Allow display over other apps"
-            else -> "SmartCaller is ready for a real call"
-        }
-    }
-
-    private fun isCallScreeningRoleHeld(): Boolean {
+    private fun isDefaultDialer(): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return false
         val roleManager = getSystemService(RoleManager::class.java)
-        return roleManager.isRoleAvailable(RoleManager.ROLE_CALL_SCREENING) &&
-            roleManager.isRoleHeld(RoleManager.ROLE_CALL_SCREENING)
+        return roleManager.isRoleAvailable(RoleManager.ROLE_DIALER) &&
+            roleManager.isRoleHeld(RoleManager.ROLE_DIALER)
     }
 
-    private fun canDrawOverlays(): Boolean =
-        Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(this)
-
-    private fun requestOverlayPermission() {
-        if (!canDrawOverlays() && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName"))
-            startActivity(intent)
-        } else {
-            message = "SmartCaller overlay is enabled"
-        }
-    }
-
-    private fun requestNotificationPermission() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
-        ) {
-            requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 2001)
-        }
-    }
-
-    private fun requestCallerIdRole() {
+    private fun requestDefaultDialer() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             val roleManager = getSystemService(RoleManager::class.java)
-            if (roleManager.isRoleAvailable(RoleManager.ROLE_CALL_SCREENING) &&
-                !roleManager.isRoleHeld(RoleManager.ROLE_CALL_SCREENING)
-            ) {
-                startActivityForResult(roleManager.createRequestRoleIntent(RoleManager.ROLE_CALL_SCREENING), 1001)
-                message = "Choose SmartCaller as your caller ID & spam protection app"
+            if (roleManager.isRoleAvailable(RoleManager.ROLE_DIALER)) {
+                startActivityForResult(
+                    roleManager.createRequestRoleIntent(RoleManager.ROLE_DIALER),
+                    REQUEST_DIALER_ROLE
+                )
             } else {
-                message = "SmartCaller is already selected for caller screening"
+                status = "This device does not expose the Android default dialer role"
             }
         } else {
-            message = "Caller screening requires Android 10 or newer"
+            status = "Default dialer role requires Android 10 or newer"
         }
-        refreshDiagnostics()
     }
 
-    data class DiagnosticsState(
-        val roleEnabled: Boolean = false,
-        val overlayEnabled: Boolean = false,
-        val notificationEnabled: Boolean = false,
-        val callbackSeen: Boolean = false,
-        val lastNumber: String? = null,
-        val lastCallbackAt: String? = null
-    )
+    private fun requestBasicPermissions() {
+        val needed = buildList {
+            if (checkSelfPermission(Manifest.permission.CALL_PHONE) != PackageManager.PERMISSION_GRANTED) add(Manifest.permission.CALL_PHONE)
+            if (checkSelfPermission(Manifest.permission.READ_CALL_LOG) != PackageManager.PERMISSION_GRANTED) add(Manifest.permission.READ_CALL_LOG)
+            if (checkSelfPermission(Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED) add(Manifest.permission.READ_CONTACTS)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) add(Manifest.permission.POST_NOTIFICATIONS)
+        }
+        if (needed.isNotEmpty()) requestPermissions(needed.toTypedArray(), REQUEST_PERMISSIONS)
+    }
+
+    private fun placeCall() {
+        val clean = number.trim()
+        if (clean.isEmpty()) {
+            status = "Enter a phone number"
+            return
+        }
+        if (checkSelfPermission(Manifest.permission.CALL_PHONE) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(arrayOf(Manifest.permission.CALL_PHONE), REQUEST_CALL_PERMISSION)
+            return
+        }
+        try {
+            val telecom = getSystemService(TelecomManager::class.java)
+            telecom.placeCall(Uri.parse("tel:${Uri.encode(clean)}"), Bundle())
+            status = "Calling $clean…"
+        } catch (e: SecurityException) {
+            status = "Phone permission is required to place calls"
+        }
+    }
+
+    private fun refreshCallLogs() {
+        if (checkSelfPermission(Manifest.permission.READ_CALL_LOG) != PackageManager.PERMISSION_GRANTED) return
+        val fresh = mutableListOf<CallLogItem>()
+        contentResolver.query(
+            CallLog.Calls.CONTENT_URI,
+            arrayOf(CallLog.Calls.NUMBER, CallLog.Calls.TYPE, CallLog.Calls.DATE),
+            null,
+            null,
+            "${CallLog.Calls.DATE} DESC"
+        )?.use { cursor ->
+            val numberIndex = cursor.getColumnIndex(CallLog.Calls.NUMBER)
+            val typeIndex = cursor.getColumnIndex(CallLog.Calls.TYPE)
+            val dateIndex = cursor.getColumnIndex(CallLog.Calls.DATE)
+            while (cursor.moveToNext() && fresh.size < 25) {
+                val phone = cursor.getString(numberIndex).orEmpty()
+                val type = when (cursor.getInt(typeIndex)) {
+                    CallLog.Calls.INCOMING_TYPE -> "Incoming"
+                    CallLog.Calls.OUTGOING_TYPE -> "Outgoing"
+                    CallLog.Calls.MISSED_TYPE -> "Missed"
+                    CallLog.Calls.REJECTED_TYPE -> "Rejected"
+                    else -> "Call"
+                }
+                val date = java.text.DateFormat.getDateTimeInstance(
+                    java.text.DateFormat.SHORT,
+                    java.text.DateFormat.SHORT
+                ).format(java.util.Date(cursor.getLong(dateIndex)))
+                fresh.add(CallLogItem(phone, type, date))
+            }
+        }
+        logs.clear()
+        logs.addAll(fresh)
+    }
+
+    data class CallLogItem(val number: String, val type: String, val date: String)
+
+    companion object {
+        private const val REQUEST_DIALER_ROLE = 3001
+        private const val REQUEST_PERMISSIONS = 3002
+        private const val REQUEST_CALL_PERMISSION = 3003
+    }
 }
 
 @androidx.compose.runtime.Composable
 private fun SmartCallerHome(
-    searchNumber: String,
+    number: String,
     onNumberChange: (String) -> Unit,
-    result: CallerRecord?,
-    message: String,
-    overlayEnabled: Boolean,
-    diagnostics: MainActivity.DiagnosticsState,
-    onSearch: () -> Unit,
-    onSetup: () -> Unit,
-    onOverlaySetup: () -> Unit,
-    onTestOverlay: () -> Unit,
-    onRefreshDiagnostics: () -> Unit
+    onCall: () -> Unit,
+    onMakeDefault: () -> Unit,
+    isDefault: Boolean,
+    status: String,
+    logs: List<MainActivity.CallLogItem>,
+    searchNumber: String,
+    onSearchNumberChange: (String) -> Unit,
+    searchResult: CallerRecord?,
+    onSearch: () -> Unit
 ) {
     Column(
         modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         Text("SmartCaller", style = MaterialTheme.typography.headlineLarge)
-        Text("Know who is calling. Block what matters.", style = MaterialTheme.typography.titleMedium)
+        Text("Your phone, smarter.", style = MaterialTheme.typography.titleMedium)
 
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("Caller ID & Spam Shield", style = MaterialTheme.typography.titleLarge)
-                Text("Local-first protection works before cloud enrichment.")
-                Button(onClick = onSetup, modifier = Modifier.fillMaxWidth()) { Text("Enable SmartCaller") }
-                OutlinedButton(onClick = onOverlaySetup, modifier = Modifier.fillMaxWidth()) {
-                    Text(if (overlayEnabled) "✓ Display over other apps enabled" else "Allow display over other apps")
+                Text("Phone App", style = MaterialTheme.typography.titleLarge)
+                Text(if (isDefault) "🟢 SmartCaller is your default phone app" else "🔴 SmartCaller is not the default phone app")
+                Button(onClick = onMakeDefault, modifier = Modifier.fillMaxWidth()) {
+                    Text(if (isDefault) "Default Phone App Enabled" else "Make SmartCaller Default Phone")
                 }
                 Text(
-                    if (overlayEnabled) "SmartCaller can show a caller card above the phone screen."
-                    else "Required for the SmartCaller caller card to appear during an incoming call.",
+                    "Once enabled, SmartCaller controls incoming calls, ongoing calls, outgoing calls and the dialer experience.",
                     style = MaterialTheme.typography.bodySmall
                 )
             }
         }
 
         Card(modifier = Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("SmartCaller Diagnostic", style = MaterialTheme.typography.titleLarge)
-                Text("Caller screening role: ${if (diagnostics.roleEnabled) "🟢 Enabled" else "🔴 Not enabled"}")
-                Text("Overlay permission: ${if (diagnostics.overlayEnabled) "🟢 Enabled" else "🔴 Not enabled"}")
-                Text("Notifications: ${if (diagnostics.notificationEnabled) "🟢 Enabled" else "🔴 Not enabled"}")
-                Text("Screening callback: ${if (diagnostics.callbackSeen) "🟢 Received" else "⚪ Not received yet"}")
-                diagnostics.lastNumber?.let { Text("Last number: $it") }
-                diagnostics.lastCallbackAt?.let { Text("Last callback: $it") }
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    OutlinedButton(onClick = onRefreshDiagnostics) { Text("Refresh") }
-                    Button(onClick = onTestOverlay) { Text("Test Caller Card") }
+            Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("Dial", style = MaterialTheme.typography.titleLarge)
+                OutlinedTextField(
+                    value = number,
+                    onValueChange = onNumberChange,
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    label = { Text("Phone number") }
+                )
+                Button(onClick = onCall, modifier = Modifier.fillMaxWidth()) { Text("📞 Call") }
+                Text(status, style = MaterialTheme.typography.bodySmall)
+            }
+        }
+
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("Caller Search", style = MaterialTheme.typography.titleLarge)
+                OutlinedTextField(
+                    value = searchNumber,
+                    onValueChange = onSearchNumberChange,
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    label = { Text("Search number") }
+                )
+                OutlinedButton(onClick = onSearch) { Text("Search") }
+                searchResult?.let { record ->
+                    Text(record.displayName ?: record.number, style = MaterialTheme.typography.titleMedium)
+                    record.category?.let { Text(it) }
+                    Text("${ReputationEngine.label(record)} • ${record.reputationScore}/100")
                 }
             }
         }
 
-        Text("Search a phone number", style = MaterialTheme.typography.titleLarge)
-        OutlinedTextField(
-            value = searchNumber,
-            onValueChange = onNumberChange,
-            modifier = Modifier.fillMaxWidth(),
-            singleLine = true,
-            label = { Text("Phone number") },
-            placeholder = { Text("e.g. 9999999999") }
-        )
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Button(onClick = onSearch) { Text("Search") }
-            TextButton(onClick = { onNumberChange("9999999999") }) { Text("Try demo") }
+        Text("Recent Calls", style = MaterialTheme.typography.titleLarge)
+        if (logs.isEmpty()) {
+            Text("No call history available yet.")
+        } else {
+            logs.forEach { item ->
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(14.dp)) {
+                        Text(item.number, style = MaterialTheme.typography.titleMedium)
+                        Text("${item.type} • ${item.date}", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            }
         }
 
-        result?.let { record -> CallerCard(record) }
-
-        Spacer(Modifier.height(6.dp))
-        Text(message, style = MaterialTheme.typography.bodyMedium)
-        Text("V1 modules: Caller ID • Spam Shield • Reputation • Business Intelligence • Community Reports", style = MaterialTheme.typography.bodySmall)
+        Spacer(Modifier.height(8.dp))
+        Text("SmartCaller V1 • Real dialer foundation • Caller ID • Spam Shield • Call History", style = MaterialTheme.typography.bodySmall)
         Text("smartcaller.in", style = MaterialTheme.typography.bodySmall)
-    }
-}
-
-@androidx.compose.runtime.Composable
-private fun CallerCard(record: CallerRecord) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
-            Text(record.displayName ?: record.number, style = MaterialTheme.typography.headlineSmall)
-            record.category?.let { Text(it, style = MaterialTheme.typography.bodyLarge) }
-            Text("${ReputationEngine.label(record)} • ${record.reputationScore}/100")
-            if (record.isVerifiedBusiness) Text("✓ Verified Business")
-            record.rating?.let { Text("★ $it Google rating") }
-            record.address?.let { Text("📍 $it") }
-            record.openingHours?.let { Text("🕐 $it") }
-            record.website?.let { Text("🌐 $it") }
-            if (record.reportCount > 0) Text("${record.reportCount} community reports")
-        }
     }
 }
