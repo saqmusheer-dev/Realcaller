@@ -55,6 +55,15 @@ class InCallServiceImpl : InCallService() {
         launchCallUi()
     }
 
+    /** Silences the current incoming ringtone without rejecting the call. */
+    fun silenceRinger() {
+        try {
+            super.silenceRinger()
+        } catch (_: Exception) {
+            // Some devices/carrier implementations may not expose a controllable ringer.
+        }
+    }
+
     private val callback = object : Call.Callback() {
         override fun onStateChanged(call: Call, state: Int) {
             showCallNotification(call)
@@ -146,7 +155,6 @@ class InCallServiceImpl : InCallService() {
                 builder.addAction(0, "Answer", answerPending)
                     .addAction(0, "Decline", rejectPending)
             }
-            // The full-screen intent is the system-supported incoming-call path for an InCallService.
             builder.setFullScreenIntent(pending, true)
         }
         getSystemService(NotificationManager::class.java).notify(CALL_NOTIFICATION_ID, builder.build())
