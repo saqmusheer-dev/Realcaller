@@ -56,43 +56,101 @@ tasks.register("patchSmartCallerSource") {
         }
         try {
             val telecom = getSystemService(TelecomManager::class.java)
-            var account = if (Build.VERSION.SDK_INT >= 29) telecom.getUserSelectedOutgoingPhoneAccount() else null
-            if (account == null) account = telecom.getDefaultOutgoingPhoneAccount("tel")
             val simAccounts = telecom.getCallCapablePhoneAccounts().filter { handle ->
                 telecom.getPhoneAccount(handle)?.hasCapabilities(android.telecom.PhoneAccount.CAPABILITY_SIM_SUBSCRIPTION) == true
             }
-            if (account == null || telecom.getPhoneAccount(account)?.hasCapabilities(android.telecom.PhoneAccount.CAPABILITY_SIM_SUBSCRIPTION) != true) {
-                account = simAccounts.firstOrNull()
-            }
-            if (account == null) {
+            if (simAccounts.isEmpty()) {
                 status = "No SIM / calling account available"
                 return
             }
-            if (Build.VERSION.SDK_INT >= 26 && !telecom.isOutgoingCallPermitted(account)) {
-                status = "Outgoing calls are blocked by phone settings"
+
+            val prefs = getSharedPreferences("smartcaller_calling", MODE_PRIVATE)
+            val savedKey = prefs.getString("default_sim_key", null)
+            val savedAccount = simAccounts.firstOrNull { simKey(it) == savedKey }
+            val alwaysAsk = prefs.getBoolean("always_ask_sim", savedKey == null)
+
+            if (!alwaysAsk && savedAccount != null) {
+                makeTelecomCall(target, savedAccount, telecom)
                 return
             }
-            val extras = Bundle()
-            extras.putParcelable(TelecomManager.EXTRA_PHONE_ACCOUNT_HANDLE, account)
-            telecom.placeCall(Uri.fromParts("tel", target, null), extras)
-            status = "Calling…"
+
+            showSimChooser(target, simAccounts, telecom, prefs)
         } catch (_: SecurityException) {
             status = "Phone permission denied"
-            try {
-                val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:com.limradigitals.realcaller"))
-                startActivity(intent)
-            } catch (_: Exception) { }
-        } catch (_: Exception) { status = "Unable to start call" }
+        } catch (_: Exception) {
+            status = "Unable to start call"
+        }
+    }
+
+    private fun simKey(handle: android.telecom.PhoneAccountHandle): String = handle.componentName.flattenToString() + "|" + handle.id
+
+    private fun showSimChooser(target: String, accounts: List<android.telecom.PhoneAccountHandle>, telecom: TelecomManager, prefs: android.content.SharedPreferences) {
+        val labels = accounts.mapIndexed { index, handle ->
+            val account = telecom.getPhoneAccount(handle)
+            val carrier = account?.label?.toString()?.trim().orEmpty()
+            if (carrier.isBlank()) "SIM ${index + 1}" else "SIM ${index + 1}  •  $carrier"
+        }.toTypedArray()
+        val selected = intArrayOf(0)
+        val container = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            setPadding(52, 0, 52, 8)
+        }
+        val remember = android.widget.CheckBox(this).apply {
+            text = "Use selected SIM as default"
+            isChecked = false
+        }
+        container.addView(remember)
+        val dialog = android.app.AlertDialog.Builder(this)
+            .setTitle("Choose SIM for this call")
+            .setSingleChoiceItems(labels, 0) { _, which -> selected[0] = which }
+            .setView(container)
+            .setNegativeButton("Always ask") { _, _ ->
+                prefs.edit().putBoolean("always_ask_sim", true).remove("default_sim_key").apply()
+                status = "SIM selection: Ask every time"
+            }
+            .setPositiveButton("Call") { _, _ ->
+                val handle = accounts[selected[0]]
+                if (remember.isChecked) {
+                    prefs.edit().putBoolean("always_ask_sim", false).putString("default_sim_key", simKey(handle)).apply()
+                } else {
+                    prefs.edit().putBoolean("always_ask_sim", true).apply()
+                }
+                makeTelecomCall(target, handle, telecom)
+            }
+            .create()
+        dialog.setOnShowListener {
+            dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE)?.setTextColor(android.graphics.Color.rgb(18, 165, 106))
+            dialog.getButton(android.app.AlertDialog.BUTTON_NEGATIVE)?.setTextColor(android.graphics.Color.rgb(23, 105, 209))
+        }
+        dialog.show()
+    }
+
+    private fun makeTelecomCall(target: String, account: android.telecom.PhoneAccountHandle, telecom: TelecomManager) {
+        if (Build.VERSION.SDK_INT >= 26 && !telecom.isOutgoingCallPermitted(account)) {
+            status = "Outgoing calls are blocked by phone settings"
+            return
+        }
+        val extras = Bundle()
+        extras.putParcelable(TelecomManager.EXTRA_PHONE_ACCOUNT_HANDLE, account)
+        telecom.placeCall(Uri.fromParts("tel", target, null), extras)
+        status = "Calling…"
     }
 
 """
         text = text.substring(0, start) + replacement + text.substring(end)
-        text = text.replace("📞", "☎")
-        text = text.replace("☎️", "☎")
+
+        // Modern Material call icon instead of legacy red telephone emoji.
         if (!text.contains("androidx.compose.material.icons.filled.Call")) {
             val importMarker = "import androidx.compose.material3.*\n"
             if (text.contains(importMarker)) text = text.replace(importMarker, importMarker + "import androidx.compose.material.icons.Icons\nimport androidx.compose.material.icons.filled.Call\n")
         }
+        text = text.replace("Text(\"☎️\")", "Icon(Icons.Default.Call, contentDescription = \"Call\", tint = Color.White)")
+        text = text.replace("Text(\"☎\")", "Icon(Icons.Default.Call, contentDescription = \"Call\", tint = Color.White)")
+        text = text.replace("Text(\"📞\")", "Icon(Icons.Default.Call, contentDescription = \"Call\", tint = Color.White)")
+        text = text.replace("Text(\"☎️\",", "Icon(Icons.Default.Call, contentDescription = \"Call\", tint = Color.White)")
+        text = text.replace("Text(\"☎\",", "Icon(Icons.Default.Call, contentDescription = \"Call\", tint = Color.White)")
+
+        // Preserve the existing Settings gear injection.
         if (!text.contains("SettingsActivity::class.java")) {
             val marker = "            Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {"
             val replacementHeader = """            val settingsContext = androidx.compose.ui.platform.LocalContext.current
