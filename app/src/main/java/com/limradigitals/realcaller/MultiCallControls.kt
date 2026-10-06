@@ -2,7 +2,6 @@ package com.limradigitals.realcaller
 
 import android.content.Intent
 import android.telecom.Call
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -24,6 +23,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 
@@ -35,6 +35,7 @@ private val MultiBg = Color(0xFFF0F5FA)
 @Composable
 fun MultiCallControls(modifier: Modifier = Modifier) {
     var calls by remember { mutableStateOf<List<Call>>(emptyList()) }
+    val context = LocalContext.current
 
     LaunchedEffect(Unit) {
         while (true) {
@@ -93,7 +94,7 @@ fun MultiCallControls(modifier: Modifier = Modifier) {
                         colors = ButtonDefaults.buttonColors(containerColor = MultiGreen)
                     ) { Text("Answer") }
                 }
-                if (active != null && active.details.canHold()) {
+                if (active != null && (active.details.callCapabilities and Call.Details.CAPABILITY_HOLD) != 0) {
                     OutlinedButton(
                         onClick = { InCallServiceImpl.instance?.holdCall(active) },
                         modifier = Modifier.weight(1f),
@@ -138,8 +139,9 @@ fun MultiCallControls(modifier: Modifier = Modifier) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(
                     onClick = {
-                        // Open SmartCaller so the user can place another call. Telecom handles hold/concurrency.
-                        val context = androidx.compose.ui.platform.LocalContext.current
+                        context.startActivity(Intent(context, SmartCallerActivityV5::class.java).apply {
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        })
                     },
                     modifier = Modifier.weight(1f),
                     shape = RoundedCornerShape(14.dp)
