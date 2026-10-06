@@ -79,7 +79,7 @@ tasks.register("patchSmartCallerSource") {
         } catch (_: SecurityException) {
             status = "Phone permission denied"
             try {
-                val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${applicationContext.packageName}"))
+                val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:com.limradigitals.realcaller"))
                 startActivity(intent)
             } catch (_: Exception) { }
         } catch (_: Exception) { status = "Unable to start call" }
