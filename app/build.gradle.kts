@@ -79,7 +79,7 @@ tasks.register("patchSmartCallerSource") {
         } catch (_: SecurityException) {
             status = "Phone permission denied"
             try {
-                val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName"))
+                val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${applicationContext.packageName}"))
                 startActivity(intent)
             } catch (_: Exception) { }
         } catch (_: Exception) { status = "Unable to start call" }
@@ -87,17 +87,12 @@ tasks.register("patchSmartCallerSource") {
 
 """
         text = text.substring(0, start) + replacement + text.substring(end)
-
-        // Replace the old red emoji handset with the monochrome phone glyph.
         text = text.replace("📞", "☎")
         text = text.replace("☎️", "☎")
-
-        // Add a real Material phone icon for call buttons where the source already uses a Text handset.
         if (!text.contains("androidx.compose.material.icons.filled.Call")) {
             val importMarker = "import androidx.compose.material3.*\n"
             if (text.contains(importMarker)) text = text.replace(importMarker, importMarker + "import androidx.compose.material.icons.Icons\nimport androidx.compose.material.icons.filled.Call\n")
         }
-
         if (!text.contains("SettingsActivity::class.java")) {
             val marker = "            Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {"
             val replacementHeader = """            val settingsContext = androidx.compose.ui.platform.LocalContext.current
