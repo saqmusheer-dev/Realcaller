@@ -6,6 +6,7 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Intent
 import android.media.AudioAttributes
+import android.media.AudioManager
 import android.net.Uri
 import android.os.Build
 import android.os.Handler
@@ -76,10 +77,19 @@ class InCallServiceImpl : InCallService() {
     /** Silences the current incoming ringtone without rejecting the call. */
     fun silenceRinger() {
         try {
-            super.silenceRinger()
-        } catch (_: Exception) {
-            // Some devices/carrier implementations may not expose a controllable ringer.
-        }
+            val audioManager = getSystemService(AudioManager::class.java) ?: return
+            val currentVolume = audioManager.getStreamVolume(AudioManager.STREAM_RING)
+            if (currentVolume <= 0) return
+            audioManager.setStreamVolume(AudioManager.STREAM_RING, 0, 0)
+            // Restore the user's previous ring volume shortly after the ignore action.
+            mainHandler.postDelayed({
+                try {
+                    if (audioManager.getStreamVolume(AudioManager.STREAM_RING) == 0) {
+                        audioManager.setStreamVolume(AudioManager.STREAM_RING, currentVolume, 0)
+                    }
+                } catch (_: Exception) { }
+            }, 2000L)
+        } catch (_: Exception) { }
     }
 
     fun answerCall(call: Call) {
