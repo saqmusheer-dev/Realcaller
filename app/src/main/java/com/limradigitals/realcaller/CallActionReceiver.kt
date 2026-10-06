@@ -10,12 +10,14 @@ class CallActionReceiver : BroadcastReceiver() {
         val call = InCallServiceImpl.currentCall ?: return
         when (intent.action) {
             ACTION_ANSWER -> call.answer(VideoProfile.STATE_AUDIO_ONLY)
+            ACTION_IGNORE -> InCallServiceImpl.instance?.silenceRinger()
             ACTION_REJECT -> call.disconnect()
         }
     }
 
     companion object {
         const val ACTION_ANSWER = "com.limradigitals.realcaller.ANSWER_CALL"
+        const val ACTION_IGNORE = "com.limradigitals.realcaller.IGNORE_CALL"
         const val ACTION_REJECT = "com.limradigitals.realcaller.REJECT_CALL"
     }
 }
