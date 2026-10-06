@@ -44,6 +44,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.limradigitals.realcaller.data.CallerRecord
+import com.limradigitals.realcaller.data.CallerRepository
+import com.limradigitals.realcaller.data.ReputationLevel
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -52,6 +55,8 @@ import java.util.Locale
 private val Blue = Color(0xFF0757A6)
 private val Green = Color(0xFF159B5B)
 private val Red = Color(0xFFD93636)
+private val SpamRed = Color(0xFFB42318)
+private val SpamBg = Color(0xFFFFE8E6)
 private val Bg = Color(0xFFF5F8FC)
 
 class CallActivity : ComponentActivity() {
@@ -62,9 +67,12 @@ class CallActivity : ComponentActivity() {
     private var recording by mutableStateOf(false)
     private var recordMessage by mutableStateOf("")
     private var resolvedName by mutableStateOf<String?>(null)
+    private var callerRecord by mutableStateOf<CallerRecord?>(null)
+    private var lastLookupNumber = ""
     private var recorder: MediaRecorder? = null
     private var recordingFile: File? = null
     private val handler = Handler(Looper.getMainLooper())
+    private val callerRepository by lazy { CallerRepository(applicationContext) }
 
     private val permissionLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) startRecording() else recordMessage = "Microphone permission is required"
@@ -76,6 +84,11 @@ class CallActivity : ComponentActivity() {
             call = active
             state = active?.state ?: Call.STATE_DISCONNECTED
             resolvedName = active?.let { resolveContactName(it.details.handle?.schemeSpecificPart.orEmpty()) }
+            val number = active?.details?.handle?.schemeSpecificPart.orEmpty()
+            if (number != lastLookupNumber) {
+                lastLookupNumber = number
+                callerRecord = if (number.isNotBlank()) callerRepository.lookup(number) else null
+            }
             if (active == null) {
                 stopRecording()
                 finish()
@@ -97,11 +110,17 @@ class CallActivity : ComponentActivity() {
                     call = call,
                     state = state,
                     contactName = resolvedName,
+                    callerRecord = callerRecord,
                     muted = muted,
                     speaker = speaker,
                     recording = recording,
                     recordMessage = recordMessage,
                     onAnswer = { call?.answer(VideoProfile.STATE_AUDIO_ONLY) },
+                    onIgnore = {
+                        // Ignore means silence the ringtone but keep the call ringing.
+                        InCallServiceImpl.instance?.silenceRinger()
+                        finish()
+                    },
                     onReject = { call?.disconnect() },
                     onMute = {
                         muted = !muted
@@ -193,11 +212,13 @@ private fun CallScreen(
     call: Call?,
     state: Int,
     contactName: String?,
+    callerRecord: CallerRecord?,
     muted: Boolean,
     speaker: Boolean,
     recording: Boolean,
     recordMessage: String,
     onAnswer: () -> Unit,
+    onIgnore: () -> Unit,
     onReject: () -> Unit,
     onMute: () -> Unit,
     onSpeaker: () -> Unit,
@@ -206,16 +227,18 @@ private fun CallScreen(
 ) {
     val number = call?.details?.handle?.schemeSpecificPart ?: "Unknown number"
     val telecomName = call?.details?.contactDisplayName?.takeIf { it.isNotBlank() }
-    val displayName = contactName ?: telecomName ?: number
+    val displayName = contactName ?: telecomName ?: callerRecord?.displayName ?: number
     val isRinging = state == Call.STATE_RINGING
     val isActive = state == Call.STATE_ACTIVE
-    val status = when (state) {
-        Call.STATE_RINGING -> "Incoming call"
-        Call.STATE_DIALING -> "Calling…"
-        Call.STATE_CONNECTING -> "Connecting…"
-        Call.STATE_ACTIVE -> "Connected"
-        Call.STATE_HOLDING -> "On hold"
-        Call.STATE_DISCONNECTED -> "Call ended"
+    val isSpam = isRinging && (callerRecord?.level == ReputationLevel.SPAM || callerRecord?.level == ReputationLevel.SCAM)
+    val status = when {
+        isSpam -> "Potential spam call"
+        state == Call.STATE_RINGING -> "Incoming call"
+        state == Call.STATE_DIALING -> "Calling…"
+        state == Call.STATE_CONNECTING -> "Connecting…"
+        state == Call.STATE_ACTIVE -> "Connected"
+        state == Call.STATE_HOLDING -> "On hold"
+        state == Call.STATE_DISCONNECTED -> "Call ended"
         else -> "Connecting…"
     }
     val initials = displayName.trim().split(Regex("\\s+")).let {
@@ -223,50 +246,125 @@ private fun CallScreen(
     }.uppercase()
 
     Column(
-        modifier = Modifier.fillMaxSize().background(Bg).padding(horizontal = 24.dp, vertical = 28.dp),
+        modifier = Modifier.fillMaxSize().background(Bg).padding(horizontal = 16.dp, vertical = 18.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        Text("SmartCaller", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Blue)
-        Spacer(Modifier.height(22.dp))
-        Box(
-            Modifier.size(96.dp).clip(CircleShape).background(Color(0xFFE7F1FC)).border(2.dp, Color(0xFFB7D1EA), CircleShape),
-            contentAlignment = Alignment.Center
-        ) { Text(initials, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold, color = Blue) }
-        Spacer(Modifier.height(16.dp))
-        Text(displayName, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold, textAlign = TextAlign.Center, color = Color(0xFF17202A))
-        if (contactName != null || telecomName != null) {
-            Spacer(Modifier.height(6.dp))
-            Text(number, style = MaterialTheme.typography.bodyLarge, color = Color(0xFF687684))
-            Spacer(Modifier.height(6.dp))
-            Text("✓ Contact", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = Green)
-        }
-        Spacer(Modifier.height(12.dp))
-        Text(status, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = if (isActive) Green else Blue)
-        if (recordMessage.isNotBlank() && isActive) {
-            Spacer(Modifier.height(8.dp))
-            Text(recordMessage, color = if (recording) Red else Color(0xFF687684), style = MaterialTheme.typography.labelMedium)
-        }
-        Spacer(Modifier.height(38.dp))
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(32.dp),
+            color = if (isSpam) SpamBg else Color.White,
+            shadowElevation = if (isSpam) 6.dp else 3.dp
+        ) {
+            Column(
+                modifier = Modifier.padding(horizontal = 22.dp, vertical = 28.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text("SmartCaller", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = if (isSpam) SpamRed else Blue)
 
-        if (isRinging) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                Button(onClick = onReject, modifier = Modifier.weight(1f).height(58.dp), shape = RoundedCornerShape(18.dp), colors = ButtonDefaults.buttonColors(containerColor = Red)) { Text("Decline", fontWeight = FontWeight.Bold) }
-                Button(onClick = onAnswer, modifier = Modifier.weight(1f).height(58.dp), shape = RoundedCornerShape(18.dp), colors = ButtonDefaults.buttonColors(containerColor = Green)) { Text("Answer", fontWeight = FontWeight.Bold) }
+                if (isSpam) {
+                    Spacer(Modifier.height(12.dp))
+                    Surface(shape = RoundedCornerShape(50.dp), color = SpamRed) {
+                        Text(
+                            "⚠ SPAM CALL",
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 7.dp),
+                            color = Color.White,
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.ExtraBold
+                        )
+                    }
+                }
+
+                Spacer(Modifier.height(22.dp))
+                Box(
+                    Modifier.size(96.dp)
+                        .clip(CircleShape)
+                        .background(if (isSpam) Color(0xFFFFD2CE) else Color(0xFFE7F1FC))
+                        .border(2.dp, if (isSpam) Color(0xFFF39A91) else Color(0xFFB7D1EA), CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(initials, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold, color = if (isSpam) SpamRed else Blue)
+                }
+                Spacer(Modifier.height(16.dp))
+                Text(displayName, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold, textAlign = TextAlign.Center, color = Color(0xFF17202A))
+                if (contactName != null || telecomName != null || callerRecord?.displayName != null) {
+                    Spacer(Modifier.height(6.dp))
+                    Text(number, style = MaterialTheme.typography.bodyLarge, color = Color(0xFF687684))
+                }
+                if (isSpam && callerRecord != null) {
+                    Spacer(Modifier.height(7.dp))
+                    val reports = callerRecord.reportCount
+                    Text(
+                        if (reports > 0) "$reports user report${if (reports == 1) "" else "s"}" else "SmartCaller warning",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = SpamRed
+                    )
+                } else if (contactName != null || telecomName != null) {
+                    Spacer(Modifier.height(6.dp))
+                    Text("✓ Contact", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = Green)
+                }
+                Spacer(Modifier.height(12.dp))
+                Text(status, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = if (isSpam) SpamRed else if (isActive) Green else Blue)
+                if (recordMessage.isNotBlank() && isActive) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(recordMessage, color = if (recording) Red else Color(0xFF687684), style = MaterialTheme.typography.labelMedium)
+                }
+                Spacer(Modifier.height(34.dp))
+
+                if (isRinging && isSpam) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        OutlinedButton(
+                            onClick = onIgnore,
+                            modifier = Modifier.weight(1f).height(56.dp),
+                            shape = RoundedCornerShape(17.dp),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, SpamRed)
+                        ) {
+                            Text("Ignore", fontWeight = FontWeight.Bold, color = SpamRed)
+                        }
+                        Button(
+                            onClick = onReject,
+                            modifier = Modifier.weight(1f).height(56.dp),
+                            shape = RoundedCornerShape(17.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = Red)
+                        ) {
+                            Text("Decline", fontWeight = FontWeight.Bold)
+                        }
+                        Button(
+                            onClick = onAnswer,
+                            modifier = Modifier.weight(1f).height(56.dp),
+                            shape = RoundedCornerShape(17.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = Green)
+                        ) {
+                            Text("Accept", fontWeight = FontWeight.Bold)
+                        }
+                    }
+                } else if (isRinging) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                        Button(onClick = onReject, modifier = Modifier.weight(1f).height(58.dp), shape = RoundedCornerShape(18.dp), colors = ButtonDefaults.buttonColors(containerColor = Red)) {
+                            Text("Decline", fontWeight = FontWeight.Bold)
+                        }
+                        Button(onClick = onAnswer, modifier = Modifier.weight(1f).height(58.dp), shape = RoundedCornerShape(18.dp), colors = ButtonDefaults.buttonColors(containerColor = Green)) {
+                            Text("Answer", fontWeight = FontWeight.Bold)
+                        }
+                    }
+                } else if (isActive) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        OutlinedButton(onClick = onMute, modifier = Modifier.weight(1f).height(54.dp), shape = RoundedCornerShape(17.dp)) { Text(if (muted) "Unmute" else "Mute") }
+                        OutlinedButton(onClick = onSpeaker, modifier = Modifier.weight(1f).height(54.dp), shape = RoundedCornerShape(17.dp)) { Text(if (speaker) "Earpiece" else "Speaker") }
+                    }
+                    Spacer(Modifier.height(12.dp))
+                    OutlinedButton(onClick = onRecord, modifier = Modifier.fillMaxWidth().height(54.dp), shape = RoundedCornerShape(17.dp)) {
+                        Text(if (recording) "■ Stop recording" else "● Record call", fontWeight = FontWeight.Bold, color = if (recording) Red else Blue)
+                    }
+                    Spacer(Modifier.height(20.dp))
+                    Button(onClick = onEnd, modifier = Modifier.fillMaxWidth().height(58.dp), shape = RoundedCornerShape(20.dp), colors = ButtonDefaults.buttonColors(containerColor = Red)) {
+                        Text("End call", fontWeight = FontWeight.ExtraBold)
+                    }
+                } else {
+                    OutlinedButton(onClick = onEnd, modifier = Modifier.height(52.dp), shape = RoundedCornerShape(17.dp)) { Text("Cancel") }
+                }
             }
-        } else if (isActive) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedButton(onClick = onMute, modifier = Modifier.weight(1f).height(54.dp), shape = RoundedCornerShape(17.dp)) { Text(if (muted) "Unmute" else "Mute") }
-                OutlinedButton(onClick = onSpeaker, modifier = Modifier.weight(1f).height(54.dp), shape = RoundedCornerShape(17.dp)) { Text(if (speaker) "Earpiece" else "Speaker") }
-            }
-            Spacer(Modifier.height(12.dp))
-            OutlinedButton(onClick = onRecord, modifier = Modifier.fillMaxWidth().height(54.dp), shape = RoundedCornerShape(17.dp)) {
-                Text(if (recording) "■ Stop recording" else "● Record call", fontWeight = FontWeight.Bold, color = if (recording) Red else Blue)
-            }
-            Spacer(Modifier.height(20.dp))
-            Button(onClick = onEnd, modifier = Modifier.fillMaxWidth().height(58.dp), shape = RoundedCornerShape(20.dp), colors = ButtonDefaults.buttonColors(containerColor = Red)) { Text("End call", fontWeight = FontWeight.ExtraBold) }
-        } else {
-            OutlinedButton(onClick = onEnd, modifier = Modifier.height(52.dp), shape = RoundedCornerShape(17.dp)) { Text("Cancel") }
         }
     }
 }
