@@ -132,14 +132,24 @@ tasks.register("patchSmartCallerSource") {
     }
 
     private fun makeTelecomCall(target: String, account: android.telecom.PhoneAccountHandle, telecom: TelecomManager) {
-        if (Build.VERSION.SDK_INT >= 26 && !telecom.isOutgoingCallPermitted(account)) {
-            status = "Outgoing calls are blocked by phone settings"
-            return
+        try {
+            if (Build.VERSION.SDK_INT >= 26 && !telecom.isOutgoingCallPermitted(account)) {
+                status = "Outgoing calls are blocked by phone settings"
+                return
+            }
+            val extras = Bundle()
+            extras.putParcelable(TelecomManager.EXTRA_PHONE_ACCOUNT_HANDLE, account)
+            telecom.placeCall(Uri.fromParts("tel", target, null), extras)
+            status = "Calling…"
+        } catch (_: SecurityException) {
+            status = "Phone permission denied"
+        } catch (_: IllegalArgumentException) {
+            status = "SIM cannot place this call"
+        } catch (_: IllegalStateException) {
+            status = "Phone service is not ready"
+        } catch (_: Exception) {
+            status = "Unable to start call"
         }
-        val extras = Bundle()
-        extras.putParcelable(TelecomManager.EXTRA_PHONE_ACCOUNT_HANDLE, account)
-        telecom.placeCall(Uri.fromParts("tel", target, null), extras)
-        status = "Calling…"
     }
 
 """
@@ -149,9 +159,8 @@ tasks.register("patchSmartCallerSource") {
             val importMarker = "import androidx.compose.material3.*\n"
             if (text.contains(importMarker)) text = text.replace(importMarker, importMarker + "import androidx.compose.material.icons.Icons\nimport androidx.compose.material.icons.filled.Call\n")
         }
-        text = text.replace("Text(\"☎️\")", "Icon(Icons.Default.Call, contentDescription = \"Call\", tint = Color.White)")
-        text = text.replace("Text(\"☎\")", "Icon(Icons.Default.Call, contentDescription = \"Call\", tint = Color.White)")
-        text = text.replace("Text(\"📞\")", "Icon(Icons.Default.Call, contentDescription = \"Call\", tint = Color.White)")
+        text = text.replace(Regex("""Text\("(?:☎️|☎|📞)"[^)]*\)"""), "Icon(Icons.Default.Call, contentDescription = \"Call\", tint = Color.White)")
+        text = text.replace("Surface(shape = CircleShape, color = Color(0xFFE4F7EF))", "Surface(shape = CircleShape, color = SCGreen)")
 
         if (!text.contains("SettingsActivity::class.java")) {
             val marker = "            Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {"
