@@ -49,9 +49,15 @@ tasks.register("patchSmartCallerSource") {
         }
         val callPhoneGranted = checkSelfPermission(Manifest.permission.CALL_PHONE) == PackageManager.PERMISSION_GRANTED
         val phoneStateGranted = checkSelfPermission(Manifest.permission.READ_PHONE_STATE) == PackageManager.PERMISSION_GRANTED
-        if (!callPhoneGranted || !phoneStateGranted) {
-            status = "Phone permission required"
-            requestPermissions(arrayOf(Manifest.permission.CALL_PHONE, Manifest.permission.READ_PHONE_STATE), 4403)
+        val phoneNumbersGranted = Build.VERSION.SDK_INT < 31 || checkSelfPermission(Manifest.permission.READ_PHONE_NUMBERS) == PackageManager.PERMISSION_GRANTED
+        if (!callPhoneGranted || !phoneStateGranted || !phoneNumbersGranted) {
+            status = "Phone permissions required"
+            val missing = buildList {
+                if (!callPhoneGranted) add(Manifest.permission.CALL_PHONE)
+                if (!phoneStateGranted) add(Manifest.permission.READ_PHONE_STATE)
+                if (!phoneNumbersGranted && Build.VERSION.SDK_INT >= 31) add(Manifest.permission.READ_PHONE_NUMBERS)
+            }
+            requestPermissions(missing.toTypedArray(), 4403)
             return
         }
         try {
@@ -76,7 +82,7 @@ tasks.register("patchSmartCallerSource") {
 
             showSimChooser(target, simAccounts, telecom, prefs)
         } catch (_: SecurityException) {
-            status = "Phone permission denied"
+            status = "Phone permissions denied"
         } catch (_: Exception) {
             status = "Unable to start call"
         }
@@ -88,7 +94,7 @@ tasks.register("patchSmartCallerSource") {
         val labels = accounts.mapIndexed { index, handle ->
             val account = telecom.getPhoneAccount(handle)
             val carrier = account?.label?.toString()?.trim().orEmpty()
-            if (carrier.isBlank()) "SIM ${index + 1}" else "SIM ${index + 1}  •  $carrier"
+            if (carrier.isBlank()) "SIM ${'$'}{index + 1}" else "SIM ${'$'}{index + 1}  •  ${'$'}carrier"
         }.toTypedArray()
         val selected = intArrayOf(0)
         val container = android.widget.LinearLayout(this).apply {
