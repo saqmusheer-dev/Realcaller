@@ -23,6 +23,7 @@ dependencies {
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.material3:material3")
+    implementation("androidx.compose.material:material-icons-extended")
     debugImplementation("androidx.compose.ui:ui-tooling")
 }
 
@@ -46,7 +47,9 @@ tasks.register("patchSmartCallerSource") {
             }
             startActivity(Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS)); return
         }
-        if (checkSelfPermission(Manifest.permission.CALL_PHONE) != PackageManager.PERMISSION_GRANTED || checkSelfPermission(Manifest.permission.READ_PHONE_STATE) != PackageManager.PERMISSION_GRANTED) {
+        val callPhoneGranted = checkSelfPermission(Manifest.permission.CALL_PHONE) == PackageManager.PERMISSION_GRANTED
+        val phoneStateGranted = checkSelfPermission(Manifest.permission.READ_PHONE_STATE) == PackageManager.PERMISSION_GRANTED
+        if (!callPhoneGranted || !phoneStateGranted) {
             status = "Phone permission required"
             requestPermissions(arrayOf(Manifest.permission.CALL_PHONE, Manifest.permission.READ_PHONE_STATE), 4403)
             return
@@ -73,12 +76,28 @@ tasks.register("patchSmartCallerSource") {
             extras.putParcelable(TelecomManager.EXTRA_PHONE_ACCOUNT_HANDLE, account)
             telecom.placeCall(Uri.fromParts("tel", target, null), extras)
             status = "Calling…"
-        } catch (_: SecurityException) { status = "Phone permission denied" }
-        catch (_: Exception) { status = "Unable to start call" }
+        } catch (_: SecurityException) {
+            status = "Phone permission denied"
+            try {
+                val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName"))
+                startActivity(intent)
+            } catch (_: Exception) { }
+        } catch (_: Exception) { status = "Unable to start call" }
     }
 
 """
         text = text.substring(0, start) + replacement + text.substring(end)
+
+        // Replace the old red emoji handset with the monochrome phone glyph.
+        text = text.replace("📞", "☎")
+        text = text.replace("☎️", "☎")
+
+        // Add a real Material phone icon for call buttons where the source already uses a Text handset.
+        if (!text.contains("androidx.compose.material.icons.filled.Call")) {
+            val importMarker = "import androidx.compose.material3.*\n"
+            if (text.contains(importMarker)) text = text.replace(importMarker, importMarker + "import androidx.compose.material.icons.Icons\nimport androidx.compose.material.icons.filled.Call\n")
+        }
+
         if (!text.contains("SettingsActivity::class.java")) {
             val marker = "            Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {"
             val replacementHeader = """            val settingsContext = androidx.compose.ui.platform.LocalContext.current
