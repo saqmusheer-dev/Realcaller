@@ -55,17 +55,22 @@ tasks.register("patchSmartCallerSource") {
             val telecom = getSystemService(TelecomManager::class.java)
             var account = if (Build.VERSION.SDK_INT >= 29) telecom.getUserSelectedOutgoingPhoneAccount() else null
             if (account == null) account = telecom.getDefaultOutgoingPhoneAccount("tel")
-            val accounts = telecom.getCallCapablePhoneAccounts()
-            if (account == null && accounts.size > 1) {
-                // Multiple SIMs with no selected default: let Telecom present its SIM chooser.
-                startActivity(Intent(Intent.ACTION_CALL, Uri.fromParts("tel", target, null)))
-                status = "Choose SIM to call"
+            val simAccounts = telecom.getCallCapablePhoneAccounts().filter { handle ->
+                telecom.getPhoneAccount(handle)?.hasCapabilities(android.telecom.PhoneAccount.CAPABILITY_SIM_SUBSCRIPTION) == true
+            }
+            if (account == null || telecom.getPhoneAccount(account)?.hasCapabilities(android.telecom.PhoneAccount.CAPABILITY_SIM_SUBSCRIPTION) != true) {
+                account = simAccounts.firstOrNull()
+            }
+            if (account == null) {
+                status = "No SIM / calling account available"
                 return
             }
-            if (account == null && accounts.isEmpty()) { status = "No SIM / calling account available"; return }
-            if (Build.VERSION.SDK_INT >= 26 && account != null && !telecom.isOutgoingCallPermitted(account)) { status = "Outgoing calls are blocked by phone settings"; return }
+            if (Build.VERSION.SDK_INT >= 26 && !telecom.isOutgoingCallPermitted(account)) {
+                status = "Outgoing calls are blocked by phone settings"
+                return
+            }
             val extras = Bundle()
-            if (account != null) extras.putParcelable(TelecomManager.EXTRA_PHONE_ACCOUNT_HANDLE, account)
+            extras.putParcelable(TelecomManager.EXTRA_PHONE_ACCOUNT_HANDLE, account)
             telecom.placeCall(Uri.fromParts("tel", target, null), extras)
             status = "Calling…"
         } catch (_: SecurityException) { status = "Phone permission denied" }
