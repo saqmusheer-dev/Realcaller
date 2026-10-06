@@ -20,6 +20,7 @@ import com.limradigitals.realcaller.data.ReputationLevel
 class InCallServiceImpl : InCallService() {
     private val mainHandler = Handler(Looper.getMainLooper())
     private lateinit var callerRepository: CallerRepository
+    private val managedCalls = LinkedHashSet<Call>()
 
     override fun onCreate() {
         super.onCreate()
@@ -30,14 +31,17 @@ class InCallServiceImpl : InCallService() {
 
     override fun onDestroy() {
         mainHandler.removeCallbacksAndMessages(null)
+        managedCalls.clear()
         if (instance === this) instance = null
+        currentCall = null
         super.onDestroy()
     }
 
     override fun onCallAdded(call: Call) {
         super.onCallAdded(call)
-        currentCall = call
+        managedCalls.add(call)
         call.registerCallback(callback)
+        selectForegroundCall()
         val number = call.details.handle?.schemeSpecificPart.orEmpty()
         if (number.isNotBlank()) callerRepository.recordIncomingCall(number)
         showCallNotification(call)
@@ -46,13 +50,27 @@ class InCallServiceImpl : InCallService() {
 
     override fun onCallRemoved(call: Call) {
         call.unregisterCallback(callback)
-        if (currentCall === call) currentCall = null
-        getSystemService(NotificationManager::class.java).cancel(CALL_NOTIFICATION_ID)
+        managedCalls.remove(call)
+        selectForegroundCall()
+        if (managedCalls.isEmpty()) {
+            currentCall = null
+            getSystemService(NotificationManager::class.java).cancel(CALL_NOTIFICATION_ID)
+        } else {
+            currentCall?.let { showCallNotification(it) }
+        }
     }
 
     override fun onBringToForeground(showDialpad: Boolean) {
         super.onBringToForeground(showDialpad)
+        selectForegroundCall()
         launchCallUi()
+    }
+
+    /** Returns all live calls currently exposed by Telecom to SmartCaller. */
+    fun getManagedCalls(): List<Call> = try {
+        getCalls().filter { it.state != Call.STATE_DISCONNECTED }
+    } catch (_: Exception) {
+        managedCalls.filter { it.state != Call.STATE_DISCONNECTED }.toList()
     }
 
     /** Silences the current incoming ringtone without rejecting the call. */
@@ -64,10 +82,76 @@ class InCallServiceImpl : InCallService() {
         }
     }
 
+    fun answerCall(call: Call) {
+        try { call.answer(android.telecom.VideoProfile.STATE_AUDIO_ONLY) } catch (_: Exception) { }
+    }
+
+    fun disconnectCall(call: Call) {
+        try { call.disconnect() } catch (_: Exception) { }
+    }
+
+    fun holdCall(call: Call) {
+        try {
+            if ((call.details.callCapabilities and Call.Details.CAPABILITY_HOLD) != 0) call.hold()
+        } catch (_: Exception) { }
+    }
+
+    fun unholdCall(call: Call) {
+        try { call.unhold() } catch (_: Exception) { }
+    }
+
+    /** Swaps an active call with a held call using Telecom's managed call controls. */
+    fun swapCalls(active: Call, held: Call) {
+        try {
+            if ((active.details.callCapabilities and Call.Details.CAPABILITY_HOLD) != 0) active.hold()
+            held.unhold()
+        } catch (_: Exception) { }
+    }
+
+    /** Requests Telecom to merge two compatible calls into a carrier-managed conference. */
+    fun conferenceCalls(first: Call, second: Call) {
+        try {
+            if (first.conferenceableCalls.contains(second)) {
+                first.conference(second)
+            } else if (second.conferenceableCalls.contains(first)) {
+                second.conference(first)
+            }
+        } catch (_: Exception) { }
+    }
+
+    fun splitConference(call: Call) {
+        try { call.splitFromConference() } catch (_: Exception) { }
+    }
+
+    fun mergeConference(call: Call) {
+        try {
+            if ((call.details.callCapabilities and Call.Details.CAPABILITY_MERGE_CONFERENCE) != 0) call.mergeConference()
+        } catch (_: Exception) { }
+    }
+
+    fun swapConference(call: Call) {
+        try {
+            if ((call.details.callCapabilities and Call.Details.CAPABILITY_SWAP_CONFERENCE) != 0) call.swapConference()
+        } catch (_: Exception) { }
+    }
+
+    private fun selectForegroundCall() {
+        val live = try { getCalls().filter { it.state != Call.STATE_DISCONNECTED } } catch (_: Exception) { managedCalls.filter { it.state != Call.STATE_DISCONNECTED }.toList() }
+        managedCalls.retainAll(live.toSet())
+        managedCalls.addAll(live)
+        currentCall = live.firstOrNull { it.state == Call.STATE_RINGING }
+            ?: live.firstOrNull { it.state == Call.STATE_ACTIVE }
+            ?: live.firstOrNull { it.state == Call.STATE_DIALING }
+            ?: live.firstOrNull { it.state == Call.STATE_CONNECTING }
+            ?: live.firstOrNull { it.state == Call.STATE_HOLDING }
+            ?: live.firstOrNull()
+    }
+
     private val callback = object : Call.Callback() {
         override fun onStateChanged(call: Call, state: Int) {
+            selectForegroundCall()
             showCallNotification(call)
-            if (state == Call.STATE_RINGING || state == Call.STATE_DIALING || state == Call.STATE_CONNECTING || state == Call.STATE_ACTIVE) {
+            if (state == Call.STATE_RINGING || state == Call.STATE_DIALING || state == Call.STATE_CONNECTING || state == Call.STATE_ACTIVE || state == Call.STATE_HOLDING) {
                 launchCallUi()
             }
         }
@@ -75,7 +159,7 @@ class InCallServiceImpl : InCallService() {
 
     private fun launchCallUi() {
         mainHandler.post {
-            if (currentCall == null) return@post
+            if (getManagedCalls().isEmpty()) return@post
             val intent = Intent(this, CallActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
             }
@@ -96,7 +180,6 @@ class InCallServiceImpl : InCallService() {
             ?: android.media.RingtoneManager.getDefaultUri(android.media.RingtoneManager.TYPE_RINGTONE)
 
         // v3 is intentional: Android locks a notification channel's sound after it is created.
-        // The previous v2 channel may have been created with a silent sound during testing.
         val incoming = NotificationChannel(INCOMING_CHANNEL_ID, "Incoming calls", NotificationManager.IMPORTANCE_HIGH).apply {
             description = "Incoming SmartCaller calls and ringtone"
             setSound(selected, audio)
