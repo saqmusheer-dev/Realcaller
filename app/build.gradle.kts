@@ -145,7 +145,6 @@ tasks.register("patchSmartCallerSource") {
 """
         text = text.substring(0, start) + replacement + text.substring(end)
 
-        // Modern Material call icon instead of legacy red telephone emoji.
         if (!text.contains("androidx.compose.material.icons.filled.Call")) {
             val importMarker = "import androidx.compose.material3.*\n"
             if (text.contains(importMarker)) text = text.replace(importMarker, importMarker + "import androidx.compose.material.icons.Icons\nimport androidx.compose.material.icons.filled.Call\n")
@@ -153,10 +152,7 @@ tasks.register("patchSmartCallerSource") {
         text = text.replace("Text(\"☎️\")", "Icon(Icons.Default.Call, contentDescription = \"Call\", tint = Color.White)")
         text = text.replace("Text(\"☎\")", "Icon(Icons.Default.Call, contentDescription = \"Call\", tint = Color.White)")
         text = text.replace("Text(\"📞\")", "Icon(Icons.Default.Call, contentDescription = \"Call\", tint = Color.White)")
-        text = text.replace("Text(\"☎️\",", "Icon(Icons.Default.Call, contentDescription = \"Call\", tint = Color.White)")
-        text = text.replace("Text(\"☎\",", "Icon(Icons.Default.Call, contentDescription = \"Call\", tint = Color.White)")
 
-        // Preserve the existing Settings gear injection.
         if (!text.contains("SettingsActivity::class.java")) {
             val marker = "            Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {"
             val replacementHeader = """            val settingsContext = androidx.compose.ui.platform.LocalContext.current
