@@ -137,3 +137,78 @@ fun SmartStatusHome(onProfile: () -> Unit) {
         Text("Photo, video or text updates with captions, viewers and replies will be added to this timeline.", color = HubMuted)
     }
 }
+
+
+@Composable
+fun SmartDashboardHome(
+    onPhone: () -> Unit,
+    onMessages: () -> Unit,
+    onStatus: () -> Unit,
+    onSettings: () -> Unit,
+    onProfile: () -> Unit
+) {
+    Column(
+        Modifier.fillMaxSize().verticalScroll(androidx.compose.foundation.rememberScrollState())
+            .padding(horizontal = 20.dp, vertical = 8.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Smart", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold, color = HubBlue)
+                Text("Your communication hub", color = HubMuted)
+            }
+            TextButton(onClick = onProfile) { Text("Profile", color = HubBlue) }
+        }
+        Spacer(Modifier.height(16.dp))
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(24.dp),
+            colors = CardDefaults.cardColors(containerColor = Color.White)
+        ) {
+            Column(Modifier.padding(18.dp)) {
+                Text("Stay connected", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold)
+                Spacer(Modifier.height(5.dp))
+                Text("Calls, messages, status and SmartCaller settings in one place.", color = HubMuted)
+                Spacer(Modifier.height(16.dp))
+                SmartDashboardTile("☎", "Calls", "Recent calls, contacts and keypad", HubBlue, onPhone)
+                SmartDashboardTile("✉", "Messages", "Chat and SmartCaller voice calls", HubGreen, onMessages)
+                SmartDashboardTile("◉", "Status", "Availability and 24-hour updates", Color(0xFF7A5AF8), onStatus)
+                SmartDashboardTile("⚙", "Settings", "Caller ID, privacy, calling and more", Color(0xFF52606D), onSettings)
+            }
+        }
+        Spacer(Modifier.height(14.dp))
+        Text("Quick actions", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Spacer(Modifier.height(8.dp))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = onPhone, modifier = Modifier.weight(1f)) { Text("Phone") }
+            OutlinedButton(onClick = onMessages, modifier = Modifier.weight(1f)) { Text("Message") }
+        }
+    }
+}
+
+@Composable
+private fun SmartDashboardTile(
+    icon: String,
+    title: String,
+    subtitle: String,
+    color: Color,
+    onClick: () -> Unit
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        shape = RoundedCornerShape(18.dp),
+        color = Color(0xFFF7F9FC),
+        onClick = onClick
+    ) {
+        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+            Surface(shape = RoundedCornerShape(14.dp), color = color.copy(alpha = .10f)) {
+                Text(icon, color = color, fontWeight = FontWeight.Bold, modifier = Modifier.padding(12.dp))
+            }
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(title, fontWeight = FontWeight.Bold)
+                Text(subtitle, color = HubMuted, style = MaterialTheme.typography.bodySmall)
+            }
+            Text("›", color = HubMuted, style = MaterialTheme.typography.titleLarge)
+        }
+    }
+}
