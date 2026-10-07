@@ -92,6 +92,7 @@ class SmartCallerActivityV5 : ComponentActivity() {
             if (checkSelfPermission(Manifest.permission.READ_CALL_LOG) != PackageManager.PERMISSION_GRANTED) add(Manifest.permission.READ_CALL_LOG)
             if (checkSelfPermission(Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED) add(Manifest.permission.READ_CONTACTS)
             if (checkSelfPermission(Manifest.permission.READ_PHONE_STATE) != PackageManager.PERMISSION_GRANTED) add(Manifest.permission.READ_PHONE_STATE)
+            if (Build.VERSION.SDK_INT >= 31 && checkSelfPermission(Manifest.permission.READ_PHONE_NUMBERS) != PackageManager.PERMISSION_GRANTED) add(Manifest.permission.READ_PHONE_NUMBERS)
             if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) add(Manifest.permission.POST_NOTIFICATIONS)
         }
         if (permissions.isNotEmpty()) requestPermissions(permissions.toTypedArray(), 4402)
@@ -223,7 +224,7 @@ private fun CallCardV5(group: V5CallGroup, onOpen: () -> Unit, onCall: () -> Uni
         Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
             AvatarV5(group.name, color); Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) { Row(verticalAlignment = Alignment.CenterVertically) { Text(group.name ?: "Unknown caller", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium); if (group.calls.size > 1) { Spacer(Modifier.width(7.dp)); Surface(shape = CircleShape, color = SCTint) { Text("${group.calls.size}", color = SCBlue, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)) } } }; Text(group.number, color = SCMuted, style = MaterialTheme.typography.bodySmall); Text("${group.latest.type} · ${group.latest.date}", color = color, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.labelSmall) }
-            FilledIconButton(onClick = onCall, colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color(0xFFE8F7EF), contentColor = SCGreen)) { Text("☎") }
+            FilledIconButton(onClick = onCall, colors = IconButtonDefaults.filledIconButtonColors(containerColor = SCGreen, contentColor = Color.White)) { Text("☎") }
         }
     }
 }
@@ -234,7 +235,7 @@ private fun ContactCardV5(contact: V5ContactItem, onSelect: () -> Unit, onCall: 
         Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
             AvatarV5(contact.name); Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) { Text(contact.name, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium); Text(contact.number, color = SCMuted, style = MaterialTheme.typography.bodySmall); Text("Saved contact", color = SCGreen, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.labelSmall) }
-            FilledIconButton(onClick = onCall, colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color(0xFFE8F7EF), contentColor = SCGreen)) { Text("☎") }
+            FilledIconButton(onClick = onCall, colors = IconButtonDefaults.filledIconButtonColors(containerColor = SCGreen, contentColor = Color.White)) { Text("☎") }
         }
     }
 }
