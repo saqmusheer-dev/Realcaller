@@ -134,19 +134,60 @@ tasks.register("patchSmartCallerSource") {
     private fun makeTelecomCall(target: String, account: android.telecom.PhoneAccountHandle, telecom: TelecomManager) {
         try {
             status = "Starting call…"
-            val extras = Bundle()
-            extras.putParcelable(TelecomManager.EXTRA_PHONE_ACCOUNT_HANDLE, account)
-            telecom.placeCall(Uri.fromParts("tel", target, null), extras)
+            val accountInfo = telecom.getPhoneAccount(account)
+            val accountLabel = accountInfo?.label?.toString()?.trim().orEmpty().ifBlank { account.id }
+            val uri = Uri.fromParts("tel", target, null)
+            val extras = Bundle().apply { putParcelable(TelecomManager.EXTRA_PHONE_ACCOUNT_HANDLE, account) }
+            CallDiagnostics.markOutgoingRequest(this, target, accountLabel)
+            telecom.placeCall(uri, extras)
             status = "Calling…"
+            verifyOutgoingCall(target, account, telecom)
         } catch (_: SecurityException) {
+            CallDiagnostics.markFailure(this, "SecurityException: phone permission")
             status = "Phone permission denied"
         } catch (_: IllegalArgumentException) {
+            CallDiagnostics.markFailure(this, "IllegalArgumentException: Telecom rejected selected SIM")
             status = "SIM cannot place this call"
         } catch (_: IllegalStateException) {
+            CallDiagnostics.markFailure(this, "IllegalStateException: Telecom service not ready")
             status = "Phone service is not ready"
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            CallDiagnostics.markFailure(this, e.javaClass.simpleName + ": " + (e.message ?: "unknown error"))
             status = "Unable to start call"
         }
+    }
+
+    private fun verifyOutgoingCall(target: String, selected: android.telecom.PhoneAccountHandle, telecom: TelecomManager) {
+        android.os.Handler(mainLooper).postDelayed({
+            try {
+                if (telecom.isInCall || InCallServiceImpl.instance?.getManagedCalls()?.isNotEmpty() == true) {
+                    CallDiagnostics.markTelecomAccepted(this, target)
+                    return@postDelayed
+                }
+                val defaultAccount = telecom.getDefaultOutgoingPhoneAccount("tel")
+                if (defaultAccount != null && defaultAccount != selected) {
+                    status = "Retrying with system SIM routing…"
+                    CallDiagnostics.markRetry(this, target, "defaultOutgoingPhoneAccount")
+                    val retryExtras = Bundle().apply { putParcelable(TelecomManager.EXTRA_PHONE_ACCOUNT_HANDLE, defaultAccount) }
+                    telecom.placeCall(Uri.fromParts("tel", target, null), retryExtras)
+                    android.os.Handler(mainLooper).postDelayed({
+                        if (telecom.isInCall || InCallServiceImpl.instance?.getManagedCalls()?.isNotEmpty() == true) {
+                            CallDiagnostics.markTelecomAccepted(this, target)
+                            status = "Calling…"
+                        } else {
+                            CallDiagnostics.markFailure(this, "No live call after system SIM retry")
+                            status = "Call did not start — open Call diagnostics"
+                        }
+                    }, 1600L)
+                } else {
+                    CallDiagnostics.markFailure(this, "No live Telecom call after placeCall")
+                    status = "Call did not reach Telecom — open Call diagnostics"
+                }
+            } catch (e: Exception) {
+                CallDiagnostics.markFailure(this, "Verification " + e.javaClass.simpleName + ": " + (e.message ?: "unknown"))
+                status = "Call failed — open Call diagnostics"
+            }
+        }, 1600L)
     }
 
 """
