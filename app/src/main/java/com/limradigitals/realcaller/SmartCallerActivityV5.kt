@@ -171,6 +171,7 @@ private fun SmartCallerHomeV5(phone: String, onPhoneChange: (String) -> Unit, on
         NavigationBarItem(selected = tab == 0, onClick = { tab = 0 }, icon = { Text("◷") }, label = { Text("Recents") })
         NavigationBarItem(selected = tab == 1, onClick = { tab = 1 }, icon = { Text("◎") }, label = { Text("Contacts") })
         NavigationBarItem(selected = tab == 2, onClick = { tab = 2 }, icon = { Text("⌨") }, label = { Text("Keypad") })
+        NavigationBarItem(selected = false, onClick = { hubTab = 3 }, icon = { Text("✦") }, label = { Text("Smart") })
     } }) { pad ->
         Column(Modifier.fillMaxSize().background(SCBg).padding(pad)) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -178,8 +179,10 @@ private fun SmartCallerHomeV5(phone: String, onPhoneChange: (String) -> Unit, on
                 IconButton(onClick = { homeContext.startActivity(Intent(homeContext, ProfileActivity::class.java)) }) { Text("ME", color = SCBlueDark, fontWeight = FontWeight.ExtraBold) }
                 Surface(shape = RoundedCornerShape(50), color = if (isDefault) Color(0xFFE4F7EF) else Color(0xFFFFF0E5)) { Text(if (isDefault) "● Ready" else "Setup", color = if (isDefault) SCGreen else Color(0xFFB7651B), fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp)) }
             }
-            SmartHubSwitcher(hubTab) { hubTab = it }
-            Spacer(Modifier.height(2.dp))
+            if (hubTab <= 2) {
+                SmartHubSwitcher(hubTab) { hubTab = it }
+                Spacer(Modifier.height(2.dp))
+            }
             when (hubTab) {
                 0 -> when (tab) {
                     0 -> RecentsViewV5(filteredGroups, search, { search = it }, filter, { filter = it }, { selectedGroup = it }, { deleteTarget = it }, onCallNumber)
@@ -187,7 +190,14 @@ private fun SmartCallerHomeV5(phone: String, onPhoneChange: (String) -> Unit, on
                     else -> KeypadViewV5(phone, onPhoneChange, onDigit, onBackspace, onCall, status)
                 }
                 1 -> SmartMessagesHome { homeContext.startActivity(Intent(homeContext, ProfileActivity::class.java)) }
-                else -> SmartStatusHome { homeContext.startActivity(Intent(homeContext, ProfileActivity::class.java)) }
+                2 -> SmartStatusHome { homeContext.startActivity(Intent(homeContext, ProfileActivity::class.java)) }
+                3 -> SmartDashboardHome(
+                    onPhone = { hubTab = 0; tab = 0 },
+                    onMessages = { hubTab = 1 },
+                    onStatus = { hubTab = 2 },
+                    onSettings = { homeContext.startActivity(Intent(homeContext, SettingsActivity::class.java)) },
+                    onProfile = { homeContext.startActivity(Intent(homeContext, ProfileActivity::class.java)) }
+                )
             }
         }
     }
