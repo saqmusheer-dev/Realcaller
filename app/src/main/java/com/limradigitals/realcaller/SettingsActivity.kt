@@ -113,7 +113,7 @@ private fun SettingsPage(ringtone: String, onBack: () -> Unit, onRingtone: () ->
 
 @Composable private fun Section(t: String) { Text(t, color = SB, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 35.dp, top = 16.dp, bottom = 8.dp)) }
 @Composable private fun CardRow(x: SI, onSystem: (String) -> Unit, onInfo: (String) -> Unit, special: (() -> Unit)? = null) {
-    Surface(color = Color(0xFFFCFBFF), shape = RoundedCornerShape(5.dp), modifier = Modifier.fillMaxWidth().clickable { when { special != null -> special(); x.action in setOf("calling", "sound", "accessibility", "blocked") -> onSystem(x.action); else -> onInfo(x.title) } }) {
+    Surface(color = Color(0xFFFCFBFF), shape = RoundedCornerShape(5.dp), modifier = Modifier.fillMaxWidth().clickable { when { special != null -> special(); x.action in setOf("calling", "sound", "accessibility", "blocked", "Call diagnostics") -> onSystem(x.action); else -> onInfo(x.title) } }) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 28.dp, vertical = 16.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(x.icon, modifier = Modifier.width(40.dp), style = MaterialTheme.typography.titleLarge, color = Color(0xFF4F555D))
             Column(Modifier.weight(1f)) { Text(x.title, style = MaterialTheme.typography.titleMedium, color = ST); x.summary?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = SM) } }
