@@ -7,6 +7,8 @@ import android.app.PendingIntent
 import android.content.Intent
 import android.media.AudioAttributes
 import android.media.AudioManager
+import android.media.Ringtone
+import android.media.RingtoneManager
 import android.net.Uri
 import android.os.Build
 import android.os.Handler
@@ -22,6 +24,7 @@ class InCallServiceImpl : InCallService() {
     private val mainHandler = Handler(Looper.getMainLooper())
     private lateinit var callerRepository: CallerRepository
     private val managedCalls = LinkedHashSet<Call>()
+    private var incomingRingtone: Ringtone? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -32,6 +35,7 @@ class InCallServiceImpl : InCallService() {
 
     override fun onDestroy() {
         mainHandler.removeCallbacksAndMessages(null)
+        stopIncomingRingtone()
         managedCalls.clear()
         if (instance === this) instance = null
         currentCall = null
@@ -48,12 +52,14 @@ class InCallServiceImpl : InCallService() {
         CallDiagnostics.markCallAdded(this, number, call.state, direction)
         if (number.isNotBlank()) callerRepository.recordIncomingCall(number)
         showCallNotification(call)
+        if (call.state == Call.STATE_RINGING) startIncomingRingtone()
         launchCallUi()
     }
 
     override fun onCallRemoved(call: Call) {
         call.unregisterCallback(callback)
         managedCalls.remove(call)
+        if (managedCalls.none { it.state == Call.STATE_RINGING }) stopIncomingRingtone()
         selectForegroundCall()
         if (managedCalls.isEmpty()) {
             currentCall = null
@@ -163,6 +169,7 @@ class InCallServiceImpl : InCallService() {
         override fun onStateChanged(call: Call, state: Int) {
             selectForegroundCall()
             showCallNotification(call)
+            if (state == Call.STATE_RINGING) startIncomingRingtone() else if (managedCalls.none { it.state == Call.STATE_RINGING }) stopIncomingRingtone()
             val number = call.details.handle?.schemeSpecificPart.orEmpty()
             if (state == Call.STATE_DISCONNECTED) {
                 val cause = call.details.disconnectCause
@@ -184,22 +191,43 @@ class InCallServiceImpl : InCallService() {
         }
     }
 
+    private fun startIncomingRingtone() {
+        try {
+            if (incomingRingtone?.isPlaying == true) return
+            val uri = getSharedPreferences(SettingsActivity.PREFS, MODE_PRIVATE)
+                .getString(SettingsActivity.KEY_RINGTONE, null)
+                ?.let { Uri.parse(it) }
+                ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
+
+            val ringtone = RingtoneManager.getRingtone(this, uri) ?: return
+            ringtone.setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                    .build()
+            )
+            if (Build.VERSION.SDK_INT >= 28) ringtone.isLooping = true
+            incomingRingtone = ringtone
+            ringtone.play()
+        } catch (_: Exception) {
+            incomingRingtone = null
+        }
+    }
+
+    private fun stopIncomingRingtone() {
+        try { incomingRingtone?.stop() } catch (_: Exception) { }
+        incomingRingtone = null
+    }
+
     fun createChannelsForSettings() {
         if (Build.VERSION.SDK_INT < 26) return
         val manager = getSystemService(NotificationManager::class.java)
-        val audio = AudioAttributes.Builder()
-            .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
-            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-            .build()
-        val selected = getSharedPreferences(SettingsActivity.PREFS, MODE_PRIVATE)
-            .getString(SettingsActivity.KEY_RINGTONE, null)
-            ?.let { Uri.parse(it) }
-            ?: android.media.RingtoneManager.getDefaultUri(android.media.RingtoneManager.TYPE_RINGTONE)
-
-        // v3 is intentional: Android locks a notification channel's sound after it is created.
+        // SmartCaller plays the selected ringtone directly through RingtoneManager.
+        // The notification channel remains high-importance for heads-up/vibration but is silent,
+        // preventing a second notification sound from playing alongside the call ringtone.
         val incoming = NotificationChannel(INCOMING_CHANNEL_ID, "Incoming calls", NotificationManager.IMPORTANCE_HIGH).apply {
             description = "Incoming SmartCaller calls and ringtone"
-            setSound(selected, audio)
+            setSound(null, null)
             enableVibration(true)
             setVibrationPattern(longArrayOf(0, 350, 180, 350))
             lockscreenVisibility = Notification.VISIBILITY_PUBLIC
@@ -271,7 +299,7 @@ class InCallServiceImpl : InCallService() {
     }
 
     companion object {
-        const val INCOMING_CHANNEL_ID = "smartcaller_incoming_v3"
+        const val INCOMING_CHANNEL_ID = "smartcaller_incoming_v4"
         const val ONGOING_CHANNEL_ID = "smartcaller_ongoing_v2"
         const val CALL_CHANNEL_ID = ONGOING_CHANNEL_ID
         const val CALL_NOTIFICATION_ID = 9001
