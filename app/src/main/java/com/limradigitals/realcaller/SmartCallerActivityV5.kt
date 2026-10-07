@@ -73,7 +73,7 @@ class SmartCallerActivityV5 : ComponentActivity() {
     private fun render() {
         setContent {
             MaterialTheme(colorScheme = lightColorScheme(primary = SCBlue, secondary = SCGreen, background = SCBg, surface = Color.White, onBackground = SCText, onSurface = SCText)) {
-                SmartCallerHomeV5(phone, { phone = cleanNumber(it) }, { phone += it }, { if (phone.isNotEmpty()) phone = phone.dropLast(1) }, { placeCall(phone) }, { placeCall(it) }, status, isDefault, callItems, contacts)
+                SmartCallerHomeV5(phone, { phone = cleanNumber(it) }, { phone += it }, { if (phone.isNotEmpty()) phone = phone.dropLast(1) }, { placeCall(phone) }, { placeCall(it) }, { deleteCallerHistory(it) }, status, isDefault, callItems, contacts)
             }
         }
     }
@@ -90,6 +90,7 @@ class SmartCallerActivityV5 : ComponentActivity() {
         val permissions = buildList {
             if (checkSelfPermission(Manifest.permission.CALL_PHONE) != PackageManager.PERMISSION_GRANTED) add(Manifest.permission.CALL_PHONE)
             if (checkSelfPermission(Manifest.permission.READ_CALL_LOG) != PackageManager.PERMISSION_GRANTED) add(Manifest.permission.READ_CALL_LOG)
+            if (checkSelfPermission(Manifest.permission.WRITE_CALL_LOG) != PackageManager.PERMISSION_GRANTED) add(Manifest.permission.WRITE_CALL_LOG)
             if (checkSelfPermission(Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED) add(Manifest.permission.READ_CONTACTS)
             if (checkSelfPermission(Manifest.permission.READ_PHONE_STATE) != PackageManager.PERMISSION_GRANTED) add(Manifest.permission.READ_PHONE_STATE)
             if (Build.VERSION.SDK_INT >= 31 && checkSelfPermission(Manifest.permission.READ_PHONE_NUMBERS) != PackageManager.PERMISSION_GRANTED) add(Manifest.permission.READ_PHONE_NUMBERS)
@@ -113,6 +114,10 @@ class SmartCallerActivityV5 : ComponentActivity() {
         }
         try { getSystemService(TelecomManager::class.java).placeCall(Uri.fromParts("tel", target, null), Bundle()); status = "Calling…" }
         catch (_: Exception) { status = "Unable to start call" }
+    }
+
+    private fun deleteCallerHistory(number: String): Int {
+        return CallLogManager.deleteCallerHistory(this, number)
     }
 
     private fun loadContacts() {
@@ -153,8 +158,8 @@ private fun normalizedKey(number: String): String { val d = number.filter { it.i
 private fun initials(name: String?): String { if (name.isNullOrBlank()) return "?"; val p = name.trim().split(Regex("\\s+")).filter { it.isNotBlank() }; return if (p.size > 1) "${p.first().first()}${p.last().first()}".uppercase() else p.first().take(1).uppercase() }
 
 @Composable
-private fun SmartCallerHomeV5(phone: String, onPhoneChange: (String) -> Unit, onDigit: (String) -> Unit, onBackspace: () -> Unit, onCall: () -> Unit, onCallNumber: (String) -> Unit, status: String, isDefault: Boolean, calls: List<V5CallItem>, contacts: List<V5ContactItem>) {
-    var tab by remember { mutableStateOf(0) }; var hubTab by remember { mutableStateOf(0) }; var filter by remember { mutableStateOf("All") }; var search by remember { mutableStateOf("") }; var selectedGroup by remember { mutableStateOf<V5CallGroup?>(null) }
+private fun SmartCallerHomeV5(phone: String, onPhoneChange: (String) -> Unit, onDigit: (String) -> Unit, onBackspace: () -> Unit, onCall: () -> Unit, onCallNumber: (String) -> Unit, onDeleteCaller: (String) -> Int, status: String, isDefault: Boolean, calls: List<V5CallItem>, contacts: List<V5ContactItem>) {
+    var tab by remember { mutableStateOf(0) }; var hubTab by remember { mutableStateOf(0) }; var filter by remember { mutableStateOf("All") }; var search by remember { mutableStateOf("") }; var selectedGroup by remember { mutableStateOf<V5CallGroup?>(null) }; var deleteTarget by remember { mutableStateOf<V5CallGroup?>(null) }
     val groups = calls.filter { filter == "All" || it.type == filter }.groupBy { normalizedKey(it.number) }.map { (key, list) -> V5CallGroup(key, list.first().number, list.firstOrNull { !it.name.isNullOrBlank() }?.name, list.sortedByDescending { it.timestamp }, list.any { it.verified }) }.sortedByDescending { it.latest.timestamp }
     val filteredGroups = groups.filter { search.isBlank() || (it.name?.contains(search, true) == true) || it.number.contains(search) }
     val filteredContacts = contacts.filter { search.isBlank() || it.name.contains(search, true) || it.number.contains(search) }
@@ -175,7 +180,7 @@ private fun SmartCallerHomeV5(phone: String, onPhoneChange: (String) -> Unit, on
             Spacer(Modifier.height(2.dp))
             when (hubTab) {
                 0 -> when (tab) {
-                    0 -> RecentsViewV5(filteredGroups, search, { search = it }, filter, { filter = it }, { selectedGroup = it }, onCallNumber)
+                    0 -> RecentsViewV5(filteredGroups, search, { search = it }, filter, { filter = it }, { selectedGroup = it }, { deleteTarget = it }, onCallNumber)
                     1 -> ContactsViewV5(filteredContacts, search, { search = it }, onCallNumber, onPhoneChange)
                     else -> KeypadViewV5(phone, onPhoneChange, onDigit, onBackspace, onCall, status)
                 }
@@ -184,20 +189,33 @@ private fun SmartCallerHomeV5(phone: String, onPhoneChange: (String) -> Unit, on
             }
         }
     }
-    selectedGroup?.let { HistoryDialogV5(it, onCallNumber) { selectedGroup = null } }
+    selectedGroup?.let { HistoryDialogV5(it, onCallNumber, { onDeleteCaller(it.number); selectedGroup = null }, { selectedGroup = null }) }
+    deleteTarget?.let { group ->
+        AlertDialog(
+            onDismissRequest = { deleteTarget = null },
+            title = { Text("Delete caller history?") },
+            text = { Text("Remove all ${group.calls.size} call-log entries for __KOPEN__group.name ?: group.number}? This cannot be undone.") },
+            confirmButton = {
+                TextButton(onClick = { onDeleteCaller(group.number); deleteTarget = null }) {
+                    Text("Delete", color = SCRed, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = { TextButton(onClick = { deleteTarget = null }) { Text("Cancel", color = SCBlue) } }
+        )
+    }
 }
 
 @Composable
 private fun SearchBoxV5(value: String, onValueChange: (String) -> Unit, hint: String) { OutlinedTextField(value, onValueChange, modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp), singleLine = true, placeholder = { Text("⌕  $hint") }, shape = RoundedCornerShape(18.dp), colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = SCBlue, unfocusedBorderColor = Color(0xFFD9E1EC), focusedContainerColor = Color.White, unfocusedContainerColor = Color.White)) }
 
 @Composable
-private fun RecentsViewV5(groups: List<V5CallGroup>, search: String, onSearch: (String) -> Unit, filter: String, onFilter: (String) -> Unit, onOpen: (V5CallGroup) -> Unit, onCall: (String) -> Unit) {
+private fun RecentsViewV5(groups: List<V5CallGroup>, search: String, onSearch: (String) -> Unit, filter: String, onFilter: (String) -> Unit, onOpen: (V5CallGroup) -> Unit, onDelete: (V5CallGroup) -> Unit, onCall: (String) -> Unit) {
     Column(Modifier.fillMaxSize()) {
         SearchBoxV5(search, onSearch, "Search people or numbers")
         Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) { listOf("All", "Missed", "Received", "Dialled").forEach { value -> FilterChip(selected = filter == value, onClick = { onFilter(value) }, label = { Text(value) }, colors = FilterChipDefaults.filterChipColors(selectedContainerColor = SCBlue, selectedLabelColor = Color.White)) } }
         LazyColumn(contentPadding = PaddingValues(horizontal = 20.dp, vertical = 2.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
             item { Text("Recent calls", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold) }
-            items(groups, key = { it.key }) { group -> CallCardV5(group, { onOpen(group) }, { onCall(group.number) }) }
+            items(groups, key = { it.key }) { group -> CallCardV5(group, { onOpen(group) }, { onDelete(group) }, { onCall(group.number) }) }
             if (groups.isEmpty()) item { EmptyStateV5("No calls found") }
         }
     }
@@ -230,13 +248,16 @@ private fun KeypadViewV5(phone: String, onPhoneChange: (String) -> Unit, onDigit
 private fun AvatarV5(name: String?, color: Color = SCBlue) { Box(Modifier.size(52.dp).clip(CircleShape).background(color.copy(alpha = .10f)).border(1.5.dp, color.copy(alpha = .22f), CircleShape), contentAlignment = Alignment.Center) { Text(initials(name), color = color, fontWeight = FontWeight.ExtraBold) } }
 
 @Composable
-private fun CallCardV5(group: V5CallGroup, onOpen: () -> Unit, onCall: () -> Unit) {
+private fun CallCardV5(group: V5CallGroup, onOpen: () -> Unit, onDelete: () -> Unit, onCall: () -> Unit) {
     val color = if (group.latest.type == "Missed") SCRed else if (group.latest.type == "Dialled") SCBlue else SCGreen
     Card(Modifier.fillMaxWidth().clickable(onClick = onOpen), shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(Color.White), elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
         Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
             AvatarV5(group.name, color); Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) { Row(verticalAlignment = Alignment.CenterVertically) { Text(group.name ?: "Unknown caller", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium); if (group.calls.size > 1) { Spacer(Modifier.width(7.dp)); Surface(shape = CircleShape, color = SCTint) { Text("${group.calls.size}", color = SCBlue, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)) } } }; Text(group.number, color = SCMuted, style = MaterialTheme.typography.bodySmall); Text("${group.latest.type} · ${group.latest.date}", color = color, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.labelSmall) }
-            FilledIconButton(onClick = onCall, colors = IconButtonDefaults.filledIconButtonColors(containerColor = SCGreen, contentColor = Color.White)) { Text("☎") }
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onDelete) { Text("⌫", color = SCRed, fontWeight = FontWeight.Bold) }
+                FilledIconButton(onClick = onCall, colors = IconButtonDefaults.filledIconButtonColors(containerColor = SCGreen, contentColor = Color.White)) { Text("☎") }
+            }
         }
     }
 }
@@ -256,6 +277,88 @@ private fun ContactCardV5(contact: V5ContactItem, onSelect: () -> Unit, onCall: 
 private fun EmptyStateV5(text: String) { Box(Modifier.fillMaxWidth().padding(top = 50.dp), contentAlignment = Alignment.Center) { Text(text, color = SCMuted) } }
 
 @Composable
-private fun HistoryDialogV5(group: V5CallGroup, onCall: (String) -> Unit, onClose: () -> Unit) {
-    AlertDialog(onDismissRequest = onClose, title = { Row(verticalAlignment = Alignment.CenterVertically) { AvatarV5(group.name); Spacer(Modifier.width(10.dp)); Column { Text(group.name ?: "Unknown caller", fontWeight = FontWeight.ExtraBold); Text(group.number, color = SCMuted, style = MaterialTheme.typography.bodySmall) } } }, text = { Column { Text("${group.calls.size} calls · ${group.calls.count { it.type == "Missed" }} missed", color = SCMuted); Spacer(Modifier.height(8.dp)); group.calls.take(20).forEach { call -> Row(Modifier.fillMaxWidth().padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) { Text(call.type, color = if (call.type == "Missed") SCRed else if (call.type == "Dialled") SCBlue else SCGreen, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f)); Text(call.date, color = SCMuted, style = MaterialTheme.typography.labelSmall) } } } }, confirmButton = { Button(onClick = { onCall(group.number) }, colors = ButtonDefaults.buttonColors(containerColor = SCGreen)) { Text("☎  Call") } }, dismissButton = { TextButton(onClick = onClose) { Text("Close") } })
+private fun HistoryDialogV5(
+    group: V5CallGroup,
+    onCall: (String) -> Unit,
+    onClear: () -> Unit,
+    onClose: () -> Unit
+) {
+    val missed = group.calls.count { it.type == "Missed" }
+    androidx.compose.ui.window.Dialog(onDismissRequest = onClose) {
+        Surface(
+            modifier = Modifier.fillMaxWidth().padding(10.dp),
+            shape = RoundedCornerShape(28.dp),
+            color = Color(0xFFF9F7FC),
+            shadowElevation = 8.dp
+        ) {
+            Column(Modifier.padding(horizontal = 20.dp, vertical = 18.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    AvatarV5(group.name, SCBlue)
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(group.name ?: "Unknown caller", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold)
+                        Text(group.number, color = SCMuted, style = MaterialTheme.typography.bodyMedium)
+                    }
+                    IconButton(onClick = onClose) { Text("×", style = MaterialTheme.typography.titleLarge, color = SCMuted) }
+                }
+
+                Spacer(Modifier.height(14.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Surface(shape = RoundedCornerShape(14.dp), color = SCTint) {
+                        Text("${group.calls.size} calls", color = SCBlue, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp))
+                    }
+                    Surface(shape = RoundedCornerShape(14.dp), color = if (missed > 0) Color(0xFFFFE9E9) else Color(0xFFEAF7F1)) {
+                        Text("${missed} missed", color = if (missed > 0) SCRed else SCGreen, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp))
+                    }
+                }
+
+                Spacer(Modifier.height(12.dp))
+                HorizontalDivider(color = Color(0xFFE2E0E7))
+
+                LazyColumn(
+                    modifier = Modifier.fillMaxWidth().heightIn(max = 430.dp),
+                    contentPadding = PaddingValues(vertical = 10.dp),
+                    verticalArrangement = Arrangement.spacedBy(3.dp)
+                ) {
+                    items(group.calls.take(30), key = { "${it.timestamp}_::${it.type}" }) { call ->
+                        val color = when (call.type) {
+                            "Missed" -> SCRed
+                            "Received" -> SCGreen
+                            else -> SCBlue
+                        }
+                        Row(Modifier.fillMaxWidth().padding(vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Box(Modifier.size(9.dp).clip(CircleShape).background(color))
+                            Spacer(Modifier.width(10.dp))
+                            Text(call.type, color = color, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                            Text(call.date, color = SCMuted, style = MaterialTheme.typography.labelMedium)
+                        }
+                    }
+                }
+
+                HorizontalDivider(color = Color(0xFFE2E0E7))
+                Spacer(Modifier.height(12.dp))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedButton(
+                        onClick = onClear,
+                        modifier = Modifier.weight(1f).height(50.dp),
+                        shape = RoundedCornerShape(16.dp)
+                    ) {
+                        Text("Clear history", color = SCRed, fontWeight = FontWeight.Bold)
+                    }
+                    Button(
+                        onClick = { onCall(group.number) },
+                        modifier = Modifier.weight(1f).height(50.dp),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = SCGreen)
+                    ) {
+                        Text("Call", fontWeight = FontWeight.Bold)
+                    }
+                }
+                Spacer(Modifier.height(4.dp))
+                TextButton(onClick = onClose, modifier = Modifier.align(Alignment.CenterHorizontally)) {
+                    Text("Close", color = SCBlue)
+                }
+            }
+        }
+    }
 }
