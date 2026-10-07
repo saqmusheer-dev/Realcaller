@@ -44,6 +44,8 @@ class InCallServiceImpl : InCallService() {
         call.registerCallback(callback)
         selectForegroundCall()
         val number = call.details.handle?.schemeSpecificPart.orEmpty()
+        val direction = if (call.state == Call.STATE_RINGING) "INCOMING" else "OUTGOING_OR_EXISTING"
+        CallDiagnostics.markCallAdded(this, number, call.state, direction)
         if (number.isNotBlank()) callerRepository.recordIncomingCall(number)
         showCallNotification(call)
         launchCallUi()
@@ -161,6 +163,11 @@ class InCallServiceImpl : InCallService() {
         override fun onStateChanged(call: Call, state: Int) {
             selectForegroundCall()
             showCallNotification(call)
+            val number = call.details.handle?.schemeSpecificPart.orEmpty()
+            if (state == Call.STATE_DISCONNECTED) {
+                val cause = call.details.disconnectCause
+                CallDiagnostics.markDisconnected(this@InCallServiceImpl, number, cause.code, cause.label?.toString(), cause.description?.toString())
+            }
             if (state == Call.STATE_RINGING || state == Call.STATE_DIALING || state == Call.STATE_CONNECTING || state == Call.STATE_ACTIVE || state == Call.STATE_HOLDING) {
                 launchCallUi()
             }
