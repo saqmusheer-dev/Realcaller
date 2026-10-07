@@ -133,10 +133,7 @@ tasks.register("patchSmartCallerSource") {
 
     private fun makeTelecomCall(target: String, account: android.telecom.PhoneAccountHandle, telecom: TelecomManager) {
         try {
-            if (Build.VERSION.SDK_INT >= 26 && !telecom.isOutgoingCallPermitted(account)) {
-                status = "Outgoing calls are blocked by phone settings"
-                return
-            }
+            status = "Starting call…"
             val extras = Bundle()
             extras.putParcelable(TelecomManager.EXTRA_PHONE_ACCOUNT_HANDLE, account)
             telecom.placeCall(Uri.fromParts("tel", target, null), extras)
