@@ -167,11 +167,11 @@ private fun SmartCallerHomeV5(phone: String, onPhoneChange: (String) -> Unit, on
     val filteredContacts = contacts.filter { search.isBlank() || it.name.contains(search, true) || it.number.contains(search) }
 
     val homeContext = androidx.compose.ui.platform.LocalContext.current
-    Scaffold(bottomBar = { if (hubTab == 0) NavigationBar(containerColor = Color.White) {
-        NavigationBarItem(selected = tab == 0, onClick = { tab = 0 }, icon = { Text("◷") }, label = { Text("Recents") })
-        NavigationBarItem(selected = tab == 1, onClick = { tab = 1 }, icon = { Text("◎") }, label = { Text("Contacts") })
-        NavigationBarItem(selected = tab == 2, onClick = { tab = 2 }, icon = { Text("⌨") }, label = { Text("Keypad") })
-        NavigationBarItem(selected = false, onClick = { hubTab = 3 }, icon = { Text("✦") }, label = { Text("Smart") })
+    Scaffold(bottomBar = { NavigationBar(containerColor = Color.White) {
+        NavigationBarItem(selected = hubTab == 0 && tab == 0, onClick = { hubTab = 0; tab = 0 }, icon = { Text("◷") }, label = { Text("Recents") })
+        NavigationBarItem(selected = hubTab == 0 && tab == 1, onClick = { hubTab = 0; tab = 1 }, icon = { Text("◎") }, label = { Text("Contacts") })
+        NavigationBarItem(selected = hubTab == 0 && tab == 2, onClick = { hubTab = 0; tab = 2 }, icon = { Text("⌨") }, label = { Text("Keypad") })
+        NavigationBarItem(selected = hubTab == 3, onClick = { hubTab = 3 }, icon = { Text("✦") }, label = { Text("Smart") })
     } }) { pad ->
         Column(Modifier.fillMaxSize().background(SCBg).padding(pad)) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
