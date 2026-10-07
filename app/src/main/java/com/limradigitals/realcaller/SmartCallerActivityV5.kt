@@ -154,12 +154,13 @@ private fun initials(name: String?): String { if (name.isNullOrBlank()) return "
 
 @Composable
 private fun SmartCallerHomeV5(phone: String, onPhoneChange: (String) -> Unit, onDigit: (String) -> Unit, onBackspace: () -> Unit, onCall: () -> Unit, onCallNumber: (String) -> Unit, status: String, isDefault: Boolean, calls: List<V5CallItem>, contacts: List<V5ContactItem>) {
-    var tab by remember { mutableStateOf(0) }; var filter by remember { mutableStateOf("All") }; var search by remember { mutableStateOf("") }; var selectedGroup by remember { mutableStateOf<V5CallGroup?>(null) }
+    var tab by remember { mutableStateOf(0) }; var hubTab by remember { mutableStateOf(0) }; var filter by remember { mutableStateOf("All") }; var search by remember { mutableStateOf("") }; var selectedGroup by remember { mutableStateOf<V5CallGroup?>(null) }
     val groups = calls.filter { filter == "All" || it.type == filter }.groupBy { normalizedKey(it.number) }.map { (key, list) -> V5CallGroup(key, list.first().number, list.firstOrNull { !it.name.isNullOrBlank() }?.name, list.sortedByDescending { it.timestamp }, list.any { it.verified }) }.sortedByDescending { it.latest.timestamp }
     val filteredGroups = groups.filter { search.isBlank() || (it.name?.contains(search, true) == true) || it.number.contains(search) }
     val filteredContacts = contacts.filter { search.isBlank() || it.name.contains(search, true) || it.number.contains(search) }
 
-    Scaffold(bottomBar = { NavigationBar(containerColor = Color.White) {
+    val homeContext = androidx.compose.ui.platform.LocalContext.current
+    Scaffold(bottomBar = { if (hubTab == 0) NavigationBar(containerColor = Color.White) {
         NavigationBarItem(selected = tab == 0, onClick = { tab = 0 }, icon = { Text("◷") }, label = { Text("Recents") })
         NavigationBarItem(selected = tab == 1, onClick = { tab = 1 }, icon = { Text("◎") }, label = { Text("Contacts") })
         NavigationBarItem(selected = tab == 2, onClick = { tab = 2 }, icon = { Text("⌨") }, label = { Text("Keypad") })
@@ -167,9 +168,20 @@ private fun SmartCallerHomeV5(phone: String, onPhoneChange: (String) -> Unit, on
         Column(Modifier.fillMaxSize().background(SCBg).padding(pad)) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) { Text("SmartCaller", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.ExtraBold, color = SCBlueDark); Text("Your phone, smarter", color = SCMuted) }
+                IconButton(onClick = { homeContext.startActivity(Intent(homeContext, ProfileActivity::class.java)) }) { Text("ME", color = SCBlueDark, fontWeight = FontWeight.ExtraBold) }
                 Surface(shape = RoundedCornerShape(50), color = if (isDefault) Color(0xFFE4F7EF) else Color(0xFFFFF0E5)) { Text(if (isDefault) "● Ready" else "Setup", color = if (isDefault) SCGreen else Color(0xFFB7651B), fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp)) }
             }
-            when (tab) { 0 -> RecentsViewV5(filteredGroups, search, { search = it }, filter, { filter = it }, { selectedGroup = it }, onCallNumber); 1 -> ContactsViewV5(filteredContacts, search, { search = it }, onCallNumber, onPhoneChange); else -> KeypadViewV5(phone, onPhoneChange, onDigit, onBackspace, onCall, status) }
+            SmartHubSwitcher(hubTab) { hubTab = it }
+            Spacer(Modifier.height(2.dp))
+            when (hubTab) {
+                0 -> when (tab) {
+                    0 -> RecentsViewV5(filteredGroups, search, { search = it }, filter, { filter = it }, { selectedGroup = it }, onCallNumber)
+                    1 -> ContactsViewV5(filteredContacts, search, { search = it }, onCallNumber, onPhoneChange)
+                    else -> KeypadViewV5(phone, onPhoneChange, onDigit, onBackspace, onCall, status)
+                }
+                1 -> SmartMessagesHome { homeContext.startActivity(Intent(homeContext, ProfileActivity::class.java)) }
+                else -> SmartStatusHome { homeContext.startActivity(Intent(homeContext, ProfileActivity::class.java)) }
+            }
         }
     }
     selectedGroup?.let { HistoryDialogV5(it, onCallNumber) { selectedGroup = null } }
