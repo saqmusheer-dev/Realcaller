@@ -157,6 +157,12 @@ tasks.register("patchSmartCallerSource") {
         }
     }
 
+    private fun deleteCallerHistory(number: String): Int {
+        val deleted = CallLogManager.deleteCallerHistory(this, number)
+        loadCalls()
+        return deleted
+    }
+
     private fun verifyOutgoingCall(target: String, selected: android.telecom.PhoneAccountHandle, telecom: TelecomManager) {
         android.os.Handler(mainLooper).postDelayed({
             try {
