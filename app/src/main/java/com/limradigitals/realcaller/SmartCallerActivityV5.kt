@@ -206,7 +206,7 @@ private fun SmartCallerHomeV5(phone: String, onPhoneChange: (String) -> Unit, on
         AlertDialog(
             onDismissRequest = { deleteTarget = null },
             title = { Text("Delete caller history?") },
-            text = { Text("Remove all ${group.calls.size} call-log entries for __KOPEN__group.name ?: group.number}? This cannot be undone.") },
+            text = { Text("Remove all ${group.calls.size} call-log entries for ${group.name ?: group.number}? This cannot be undone.") },
             confirmButton = {
                 TextButton(onClick = { onDeleteCaller(group.number); deleteTarget = null }) {
                     Text("Delete", color = SCRed, fontWeight = FontWeight.Bold)
