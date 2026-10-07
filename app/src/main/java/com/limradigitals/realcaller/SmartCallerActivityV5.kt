@@ -117,7 +117,9 @@ class SmartCallerActivityV5 : ComponentActivity() {
     }
 
     private fun deleteCallerHistory(number: String): Int {
-        return CallLogManager.deleteCallerHistory(this, number)
+        val deleted = CallLogManager.deleteCallerHistory(this, number)
+        loadCalls()
+        return deleted
     }
 
     private fun loadContacts() {
