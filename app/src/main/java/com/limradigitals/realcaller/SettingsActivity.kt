@@ -76,6 +76,7 @@ class SettingsActivity : ComponentActivity() {
     }
     private fun openSystem(action: String) {
         try { when (action) {
+            "Call diagnostics" -> startActivity(Intent(this, CallDiagnosticsActivity::class.java))
             "calling" -> startActivity(Intent(TelecomManager.ACTION_SHOW_CALL_SETTINGS))
             "sound" -> startActivity(Intent(Settings.ACTION_SOUND_SETTINGS))
             "accessibility" -> startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
@@ -94,7 +95,7 @@ private fun SettingsPage(ringtone: String, onBack: () -> Unit, onRingtone: () ->
     val general = listOf(
         SI("♿", "Accessibility", action = "accessibility"), SI("⌕", "Assisted dialling", "Country and number assistance", "Assisted dialling"), SI("⊘", "Blocked numbers", "Manage blocked callers", "blocked"), SI("▣", "Calling accounts", "SIM and call account settings", "calling"), SI("◉", "Call recording", "Recording preferences", "Call recording"), SI("☷", "Display options", "Caller screen appearance", "Display options"), SI("☝", "Incoming call gesture", "Answer and decline gestures", "Incoming call gesture"), SI("□", "Quick responses", "Messages when you cannot answer", "Quick responses"), SI("◖", "Sounds and vibration", "Ringtone, volume and vibration", "sound"), SI("◌", "Voicemail", "Voicemail settings", "Voicemail"), SI("♪", "Contact ringtones", "Personalize contacts", "Contact ringtones"), SI("♫", "Caller tune", ringtone, "ringtone")
     )
-    val advanced = listOf(SI("✦", "Smart Caller Intelligence", "Caller profiles, reputation and business data", "Smart Caller Intelligence"), SI("⌕", "Smart search", "Search calls, contacts and caller information", "Smart search"), SI("⌁", "Privacy and data", "Local-first data controls", "Privacy and data"), SI("ⓘ", "About SmartCaller", "Version 1.0", "About SmartCaller"))
+    val advanced = listOf(SI("✦", "Smart Caller Intelligence", "Caller profiles, reputation and business data", "Smart Caller Intelligence"), SI("⌕", "Smart search", "Search calls, contacts and caller information", "Smart search"), SI("⌁", "Privacy and data", "Local-first data controls", "Privacy and data"), SI("⚙", "Call diagnostics", "Telecom and SIM call troubleshooting", "Call diagnostics"), SI("ⓘ", "About SmartCaller", "Version 1.0", "About SmartCaller"))
     Scaffold(containerColor = SBG) { p ->
         Column(Modifier.fillMaxSize().background(SBG).padding(p)) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) { TextButton(onClick = onBack) { Text("‹", style = MaterialTheme.typography.displaySmall, color = ST) }; Text("Settings", style = MaterialTheme.typography.headlineMedium, color = ST) }
