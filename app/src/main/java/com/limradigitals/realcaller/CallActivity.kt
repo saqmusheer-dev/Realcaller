@@ -8,6 +8,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.provider.ContactsContract
+import android.provider.CallLog
 import android.telecom.Call
 import android.telecom.CallAudioState
 import android.telecom.TelecomManager
@@ -66,6 +67,9 @@ private val SpamRed = Color(0xFFB42318)
 private val SpamBg = Color(0xFFFFE8E6)
 private val Bg = Color(0xFFF5F8FC)
 
+private data class QuickContactEntry(val name: String, val number: String)
+private data class QuickCallEntry(val name: String, val number: String, val type: String)
+
 class CallActivity : ComponentActivity() {
     private var call by mutableStateOf<Call?>(null)
     private var state by mutableStateOf(Call.STATE_DISCONNECTED)
@@ -80,6 +84,9 @@ class CallActivity : ComponentActivity() {
     private var resolvedName by mutableStateOf<String?>(null)
     private var callerRecord by mutableStateOf<CallerRecord?>(null)
     private var lastLookupNumber = ""
+    private var quickContacts by mutableStateOf<List<QuickContactEntry>>(emptyList())
+    private var quickCalls by mutableStateOf<List<QuickCallEntry>>(emptyList())
+    private var lastQuickState = Call.STATE_DISCONNECTED
     private var recorder: MediaRecorder? = null
     private var recordingFile: File? = null
     private val handler = Handler(Looper.getMainLooper())
@@ -94,6 +101,10 @@ class CallActivity : ComponentActivity() {
             val active = InCallServiceImpl.currentCall
             call = active
             state = active?.state ?: Call.STATE_DISCONNECTED
+            if (state != lastQuickState) {
+                lastQuickState = state
+                if (state == Call.STATE_HOLDING || state == Call.STATE_ACTIVE) refreshQuickCallChoices()
+            }
             resolvedName = active?.let { resolveContactName(it.details.handle?.schemeSpecificPart.orEmpty()) }
             val number = active?.details?.handle?.schemeSpecificPart.orEmpty()
             if (number != lastLookupNumber) {
@@ -134,6 +145,8 @@ class CallActivity : ComponentActivity() {
                     showDialpad = showDialpad,
                     dialpadMode = dialpadMode,
                     dialpadText = dialpadText,
+                    quickContacts = quickContacts,
+                    quickCalls = quickCalls,
                     onAnswer = { call?.answer(VideoProfile.STATE_AUDIO_ONLY) },
                     onResume = { call?.let { InCallServiceImpl.instance?.unholdCall(it) }; heldByUser = false },
                     onHold = { holdCurrentCall() },
@@ -162,6 +175,7 @@ class CallActivity : ComponentActivity() {
                     onNewCallDigit = { digit -> if (dialpadText.length < 24) dialpadText += digit },
                     onNewCallBackspace = { if (dialpadText.isNotEmpty()) dialpadText = dialpadText.dropLast(1) },
                     onPlaceNewCall = { placeNewCall(dialpadText) },
+                    onQuickCall = { placeNewCall(it) },
                     onCloseDialpad = { showDialpad = false; dialpadMode = DialpadMode.DTMF; dialpadText = "" }
                 )
             }
@@ -169,16 +183,16 @@ class CallActivity : ComponentActivity() {
         handler.post(poller)
     }
 
-    override fun onKeyDown(keyCode: Int, event: android.view.KeyEvent): Boolean {
-        // While an incoming call is ringing, either hardware volume key should
-        // silence only this call. Do not alter the user's saved ring volume.
-        if ((keyCode == android.view.KeyEvent.KEYCODE_VOLUME_UP ||
-                keyCode == android.view.KeyEvent.KEYCODE_VOLUME_DOWN) &&
+    override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
+        // Volume keys silence only the current ringing call. Consume DOWN and UP
+        // so Android does not also change the user's global ring volume.
+        if ((event.keyCode == android.view.KeyEvent.KEYCODE_VOLUME_UP ||
+                event.keyCode == android.view.KeyEvent.KEYCODE_VOLUME_DOWN) &&
             state == Call.STATE_RINGING) {
             InCallServiceImpl.instance?.silenceRinger()
             return true
         }
-        return super.onKeyDown(keyCode, event)
+        return super.dispatchKeyEvent(event)
     }
 
     private fun holdCurrentCall() {
@@ -231,6 +245,15 @@ class CallActivity : ComponentActivity() {
         } catch (_: Exception) { }
     }
 
+    private fun ensureActiveCallHeldForNewCall() {
+        val active = InCallServiceImpl.instance?.getManagedCalls()
+            ?.firstOrNull { it.state == Call.STATE_ACTIVE }
+        if (active != null &&
+            (active.details.callCapabilities and Call.Details.CAPABILITY_HOLD) != 0) {
+            InCallServiceImpl.instance?.holdCall(active)
+        }
+    }
+
     private fun placeNewCall(number: String) {
         val target = number.filter { it.isDigit() || it == '+' || it == '*' || it == '#' }
         if (target.isBlank()) {
@@ -243,6 +266,7 @@ class CallActivity : ComponentActivity() {
         }
 
         try {
+            ensureActiveCallHeldForNewCall()
             val telecom = getSystemService(TelecomManager::class.java)
             val accounts = if (
                 checkSelfPermission(Manifest.permission.READ_PHONE_STATE) == PackageManager.PERMISSION_GRANTED &&
@@ -325,6 +349,67 @@ class CallActivity : ComponentActivity() {
         if (wasRecording) recordMessage = "Recording saved in SmartCaller"
     }
 
+    private fun refreshQuickCallChoices() {
+        if (checkSelfPermission(Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED) {
+            quickContacts = try {
+                val result = mutableListOf<QuickContactEntry>()
+                contentResolver.query(
+                    ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
+                    arrayOf(
+                        ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME,
+                        ContactsContract.CommonDataKinds.Phone.NUMBER
+                    ),
+                    null,
+                    null,
+                    ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME + " ASC"
+                )?.use { cursor ->
+                    while (cursor.moveToNext() && result.size < 12) {
+                        val name = cursor.getString(0)?.trim().orEmpty()
+                        val number = cursor.getString(1)?.trim().orEmpty()
+                        if (name.isNotBlank() && number.isNotBlank() &&
+                            result.none { it.number == number }) {
+                            result += QuickContactEntry(name, number)
+                        }
+                    }
+                }
+                result
+            } catch (_: Exception) { emptyList() }
+        }
+
+        if (checkSelfPermission(Manifest.permission.READ_CALL_LOG) == PackageManager.PERMISSION_GRANTED) {
+            quickCalls = try {
+                val result = mutableListOf<QuickCallEntry>()
+                contentResolver.query(
+                    CallLog.Calls.CONTENT_URI,
+                    arrayOf(
+                        CallLog.Calls.NUMBER,
+                        CallLog.Calls.CACHED_NAME,
+                        CallLog.Calls.TYPE,
+                        CallLog.Calls.DATE
+                    ),
+                    null,
+                    null,
+                    CallLog.Calls.DATE + " DESC"
+                )?.use { cursor ->
+                    while (cursor.moveToNext() && result.size < 18) {
+                        val number = cursor.getString(0)?.trim().orEmpty()
+                        if (number.isBlank()) continue
+                        val cached = cursor.getString(1)?.trim().orEmpty()
+                        val type = when (cursor.getInt(2)) {
+                            CallLog.Calls.MISSED_TYPE -> "Missed"
+                            CallLog.Calls.INCOMING_TYPE -> "Received"
+                            CallLog.Calls.OUTGOING_TYPE -> "Dialled"
+                            else -> "Call"
+                        }
+                        val name = cached.ifBlank { resolveContactName(number) ?: number }
+                        result += QuickCallEntry(name, number, type)
+                    }
+                }
+                result
+            } catch (_: Exception) { emptyList() }
+        }
+    }
+
     private fun resolveContactName(number: String): String? {
         if (number.isBlank() || checkSelfPermission(Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED) return null
         return try {
@@ -355,6 +440,8 @@ private fun CallScreen(
     showDialpad: Boolean,
     dialpadMode: DialpadMode,
     dialpadText: String,
+    quickContacts: List<QuickContactEntry>,
+    quickCalls: List<QuickCallEntry>,
     onAnswer: () -> Unit,
     onResume: () -> Unit,
     onHold: () -> Unit,
@@ -370,6 +457,7 @@ private fun CallScreen(
     onNewCallDigit: (Char) -> Unit,
     onNewCallBackspace: () -> Unit,
     onPlaceNewCall: () -> Unit,
+    onQuickCall: (String) -> Unit,
     onCloseDialpad: () -> Unit
 ) {
     val number = call?.details?.handle?.schemeSpecificPart ?: "Unknown number"
@@ -533,8 +621,8 @@ private fun CallScreen(
                         CallActionButton("Answer", "☎", Green, true, onAnswer, Modifier.weight(1f))
                     }
                 }
-            } else if (isActive) {
-                if (showDialpad) {
+            } else if (isActive || isHolding) {
+                if (showDialpad && isActive) {
                     InCallDialpad(
                         mode = dialpadMode,
                         text = dialpadText,
@@ -554,14 +642,61 @@ private fun CallScreen(
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                 CallActionButton("Mute", "MIC", Blue, muted, onMute, Modifier.weight(1f))
                                 CallActionButton("Speaker", "SPK", Blue, speaker, onSpeaker, Modifier.weight(1f))
-                                CallActionButton("Keypad", "123", Blue, false, onToggleDialpad, Modifier.weight(1f))
+                                CallActionButton(
+                                    "Keypad",
+                                    "123",
+                                    Blue,
+                                    false,
+                                    if (isHolding) onAddCall else onToggleDialpad,
+                                    Modifier.weight(1f)
+                                )
                             }
                             Spacer(Modifier.height(10.dp))
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                CallActionButton("Hold", "Ⅱ", Blue, false, onHold, Modifier.weight(1f))
+                                CallActionButton(
+                                    if (isHolding) "Resume" else "Hold",
+                                    if (isHolding) "▶" else "Ⅱ",
+                                    Blue,
+                                    isHolding,
+                                    if (isHolding) onResume else onHold,
+                                    Modifier.weight(1f)
+                                )
                                 CallActionButton("New call", "+", Blue, false, onAddCall, Modifier.weight(1f))
-                                CallActionButton("Record", "●", if (recording) Red else Blue, recording, onRecord, Modifier.weight(1f))
+                                CallActionButton(
+                                    "Record",
+                                    "●",
+                                    if (recording) Red else Blue,
+                                    recording,
+                                    onRecord,
+                                    Modifier.weight(1f)
+                                )
                             }
+                        }
+                    }
+                }
+
+                if (isHolding) {
+                    Spacer(Modifier.height(10.dp))
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(24.dp),
+                        color = Color.White,
+                        shadowElevation = 2.dp
+                    ) {
+                        Column(Modifier.padding(14.dp)) {
+                            Text("Your call is safely on hold", color = Blue, fontWeight = FontWeight.ExtraBold)
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                "Resume anytime, or choose a contact/recent call to start a second call.",
+                                color = Color(0xFF687684),
+                                style = MaterialTheme.typography.labelMedium
+                            )
+                            Spacer(Modifier.height(10.dp))
+                            QuickCallPicker(
+                                contacts = quickContacts,
+                                calls = quickCalls,
+                                onCall = onQuickCall
+                            )
                         }
                     }
                 }
@@ -579,34 +714,99 @@ private fun CallScreen(
                 ) {
                     Text("End call", fontWeight = FontWeight.ExtraBold, style = MaterialTheme.typography.titleMedium)
                 }
-            } else if (isHolding) {
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(24.dp),
-                    color = Color.White,
-                    shadowElevation = 2.dp
-                ) {
-                    Column(Modifier.padding(14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("Your call is safely on hold", color = Blue, fontWeight = FontWeight.Bold)
-                        Spacer(Modifier.height(12.dp))
-                        Button(
-                            onClick = onResume,
-                            modifier = Modifier.fillMaxWidth().height(54.dp),
-                            shape = RoundedCornerShape(18.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = Blue)
-                        ) { Text("Resume call", fontWeight = FontWeight.ExtraBold) }
-                    }
-                }
-                Spacer(Modifier.height(10.dp))
-                Button(
-                    onClick = onEnd,
-                    modifier = Modifier.fillMaxWidth().height(58.dp),
-                    shape = RoundedCornerShape(20.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Red)
-                ) { Text("End call", fontWeight = FontWeight.ExtraBold) }
             } else {
                 OutlinedButton(onClick = onEnd, modifier = Modifier.height(52.dp), shape = RoundedCornerShape(17.dp)) {
                     Text("Cancel")
+                }
+            }
+        }
+    }
+}
+
+@androidx.compose.runtime.Composable
+private fun QuickCallPicker(
+    contacts: List<QuickContactEntry>,
+    calls: List<QuickCallEntry>,
+    onCall: (String) -> Unit
+) {
+    var filter by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf("Contacts") }
+    val items = when (filter) {
+        "Contacts" -> contacts.map { QuickCallEntry(it.name, it.number, "Contact") }
+        "Received" -> calls.filter { it.type == "Received" }
+        "Missed" -> calls.filter { it.type == "Missed" }
+        else -> calls
+    }.distinctBy { it.number }.take(6)
+
+    Row(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(5.dp)
+    ) {
+        listOf("Contacts", "Received", "Missed", "Recent").forEach { tab ->
+            androidx.compose.material3.FilterChip(
+                selected = filter == tab,
+                onClick = { filter = tab },
+                label = { Text(tab, style = MaterialTheme.typography.labelSmall) },
+                modifier = Modifier.weight(1f)
+            )
+        }
+    }
+
+    Spacer(Modifier.height(8.dp))
+    if (items.isEmpty()) {
+        Text(
+            when (filter) {
+                "Contacts" -> "No contacts available"
+                "Received" -> "No received calls"
+                "Missed" -> "No missed calls"
+                else -> "No recent calls"
+            },
+            color = Color(0xFF687684),
+            style = MaterialTheme.typography.labelSmall,
+            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+            textAlign = TextAlign.Center
+        )
+    } else {
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            items.forEach { item ->
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    color = Color(0xFFF5F8FC),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE1E7EF))
+                ) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            Modifier.size(38.dp).clip(CircleShape).background(Color(0xFFE8F2FF)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(item.name.take(1).uppercase(), color = Blue, fontWeight = FontWeight.ExtraBold)
+                        }
+                        Spacer(Modifier.size(9.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(item.name, fontWeight = FontWeight.Bold, maxLines = 1)
+                            Text(item.number, color = Color(0xFF687684), style = MaterialTheme.typography.labelSmall, maxLines = 1)
+                            Text(
+                                item.type,
+                                color = when (item.type) {
+                                    "Missed" -> Red
+                                    "Received" -> Green
+                                    else -> Blue
+                                },
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        Button(
+                            onClick = { onCall(item.number) },
+                            modifier = Modifier.height(40.dp),
+                            shape = RoundedCornerShape(13.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = Green),
+                            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 14.dp)
+                        ) { Text("Call", fontWeight = FontWeight.ExtraBold) }
+                    }
                 }
             }
         }
