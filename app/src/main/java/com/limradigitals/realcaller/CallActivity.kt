@@ -141,6 +141,18 @@ class CallActivity : ComponentActivity() {
         handler.post(poller)
     }
 
+    override fun onKeyDown(keyCode: Int, event: android.view.KeyEvent): Boolean {
+        // While an incoming call is ringing, either hardware volume key should
+        // silence only this call. Do not alter the user's saved ring volume.
+        if ((keyCode == android.view.KeyEvent.KEYCODE_VOLUME_UP ||
+                keyCode == android.view.KeyEvent.KEYCODE_VOLUME_DOWN) &&
+            state == Call.STATE_RINGING) {
+            InCallServiceImpl.instance?.silenceRinger()
+            return true
+        }
+        return super.onKeyDown(keyCode, event)
+    }
+
     private fun toggleRecording() {
         if (recording) {
             stopRecording()
