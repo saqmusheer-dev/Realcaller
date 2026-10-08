@@ -25,8 +25,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Delete
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -275,7 +273,7 @@ private fun RecentsViewV5(
                 FilledIconButton(
                     onClick = onBulkDelete,
                     colors = IconButtonDefaults.filledIconButtonColors(containerColor = SCRed, contentColor = Color.White)
-                ) { Icon(Icons.Default.Delete, contentDescription = "Delete selected callers") }
+                ) { Icon(androidx.compose.material.icons.Icons.Default.Delete, contentDescription = "Delete selected callers") }
             }
         } else {
             SearchBoxV5(search, onSearch, "Search people or numbers")
@@ -386,7 +384,7 @@ private fun CallCardV5(
             }
             if (!selectionMode) {
                 Row(horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = onDelete) { Icon(Icons.Default.Delete, contentDescription = "Delete caller", tint = SCRed) }
+                    IconButton(onClick = onDelete) { Icon(androidx.compose.material.icons.Icons.Default.Delete, contentDescription = "Delete caller", tint = SCRed) }
                     FilledIconButton(onClick = onCall, colors = IconButtonDefaults.filledIconButtonColors(containerColor = SCGreen, contentColor = Color.White)) { Text("☎") }
                 }
             }
