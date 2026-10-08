@@ -16,6 +16,7 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -45,7 +46,7 @@ private val SCTint = Color(0xFFEAF2FF)
 private val SCText = Color(0xFF172033)
 private val SCMuted = Color(0xFF718096)
 
-private data class V5CallItem(val number: String, val name: String?, val type: String, val date: String, val timestamp: Long, val verified: Boolean)
+private data class V5CallItem(val number: String, val name: String?, val type: String, val date: String, val time: String, val duration: Long, val timestamp: Long, val verified: Boolean)
 private data class V5CallGroup(val key: String, val number: String, val name: String?, val calls: List<V5CallItem>, val verified: Boolean) {
     val latest: V5CallItem get() = calls.maxByOrNull { it.timestamp } ?: calls.first()
 }
@@ -119,6 +120,12 @@ class SmartCallerActivityV5 : ComponentActivity() {
     private fun deleteCallerHistory(number: String): Int {
         val deleted = CallLogManager.deleteCallerHistory(this, number)
         loadCalls()
+        val message = when {
+            deleted > 0 -> "Deleted $deleted call-log ${if (deleted == 1) "entry" else "entries"}"
+            deleted == 0 -> "No call-log entries were deleted"
+            else -> "Call-log permission is not available"
+        }
+        android.widget.Toast.makeText(this, message, android.widget.Toast.LENGTH_SHORT).show()
         return deleted
     }
 
@@ -138,13 +145,16 @@ class SmartCallerActivityV5 : ComponentActivity() {
     private fun loadCalls() {
         if (checkSelfPermission(Manifest.permission.READ_CALL_LOG) != PackageManager.PERMISSION_GRANTED) return
         val result = mutableListOf<V5CallItem>()
-        contentResolver.query(CallLog.Calls.CONTENT_URI, arrayOf(CallLog.Calls.NUMBER, CallLog.Calls.TYPE, CallLog.Calls.DATE, CallLog.Calls.CACHED_NAME), null, null, CallLog.Calls.DATE + " DESC")?.use { c ->
-            val ni = c.getColumnIndex(CallLog.Calls.NUMBER); val ti = c.getColumnIndex(CallLog.Calls.TYPE); val di = c.getColumnIndex(CallLog.Calls.DATE); val ci = c.getColumnIndex(CallLog.Calls.CACHED_NAME)
+        contentResolver.query(CallLog.Calls.CONTENT_URI, arrayOf(CallLog.Calls.NUMBER, CallLog.Calls.TYPE, CallLog.Calls.DATE, CallLog.Calls.DURATION, CallLog.Calls.CACHED_NAME), null, null, CallLog.Calls.DATE + " DESC")?.use { c ->
+            val ni = c.getColumnIndex(CallLog.Calls.NUMBER); val ti = c.getColumnIndex(CallLog.Calls.TYPE); val di = c.getColumnIndex(CallLog.Calls.DATE); val dui = c.getColumnIndex(CallLog.Calls.DURATION); val ci = c.getColumnIndex(CallLog.Calls.CACHED_NAME)
             while (c.moveToNext() && result.size < 300) {
                 val number = c.getString(ni).orEmpty(); val cached = if (ci >= 0) c.getString(ci)?.takeIf { it.isNotBlank() } else null
                 val type = when (c.getInt(ti)) { CallLog.Calls.INCOMING_TYPE -> "Received"; CallLog.Calls.OUTGOING_TYPE -> "Dialled"; CallLog.Calls.MISSED_TYPE -> "Missed"; CallLog.Calls.REJECTED_TYPE -> "Rejected"; else -> "Call" }
                 val ts = c.getLong(di); val verified = try { repository.lookup(number)?.isVerifiedBusiness == true } catch (_: Exception) { false }
-                result.add(V5CallItem(number, cached ?: findContactName(number), type, DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(ts)), ts, verified))
+                val duration = if (dui >= 0) c.getLong(dui) else 0L
+                val date = DateFormat.getDateInstance(DateFormat.SHORT).format(Date(ts))
+                val time = DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(ts))
+                result.add(V5CallItem(number, cached ?: findContactName(number), type, date, time, duration, ts, verified))
             }
         }
         callItems.clear(); callItems.addAll(result)
@@ -161,7 +171,7 @@ private fun initials(name: String?): String { if (name.isNullOrBlank()) return "
 
 @Composable
 private fun SmartCallerHomeV5(phone: String, onPhoneChange: (String) -> Unit, onDigit: (String) -> Unit, onBackspace: () -> Unit, onCall: () -> Unit, onCallNumber: (String) -> Unit, onDeleteCaller: (String) -> Int, status: String, isDefault: Boolean, calls: List<V5CallItem>, contacts: List<V5ContactItem>) {
-    var tab by remember { mutableStateOf(0) }; var hubTab by remember { mutableStateOf(0) }; var filter by remember { mutableStateOf("All") }; var search by remember { mutableStateOf("") }; var selectedGroup by remember { mutableStateOf<V5CallGroup?>(null) }; var deleteTarget by remember { mutableStateOf<V5CallGroup?>(null) }
+    var tab by remember { mutableStateOf(0) }; var hubTab by remember { mutableStateOf(0) }; var filter by remember { mutableStateOf("All") }; var search by remember { mutableStateOf("") }; var selectedGroup by remember { mutableStateOf<V5CallGroup?>(null) }; var deleteTarget by remember { mutableStateOf<V5CallGroup?>(null) }; var selectedCallerKeys by remember { mutableStateOf<Set<String>>(emptySet()) }; var bulkDeleteConfirm by remember { mutableStateOf(false) }
     val groups = calls.filter { filter == "All" || it.type == filter }.groupBy { normalizedKey(it.number) }.map { (key, list) -> V5CallGroup(key, list.first().number, list.firstOrNull { !it.name.isNullOrBlank() }?.name, list.sortedByDescending { it.timestamp }, list.any { it.verified }) }.sortedByDescending { it.latest.timestamp }
     val filteredGroups = groups.filter { search.isBlank() || (it.name?.contains(search, true) == true) || it.number.contains(search) }
     val filteredContacts = contacts.filter { search.isBlank() || it.name.contains(search, true) || it.number.contains(search) }
@@ -185,7 +195,7 @@ private fun SmartCallerHomeV5(phone: String, onPhoneChange: (String) -> Unit, on
             }
             when (hubTab) {
                 0 -> when (tab) {
-                    0 -> RecentsViewV5(filteredGroups, search, { search = it }, filter, { filter = it }, { selectedGroup = it }, { deleteTarget = it }, onCallNumber)
+                    0 -> RecentsViewV5(filteredGroups, search, { search = it }, filter, { filter = it }, selectedCallerKeys, { key -> selectedCallerKeys = if (key in selectedCallerKeys) selectedCallerKeys - key else selectedCallerKeys + key }, { selectedGroup = it }, { deleteTarget = it }, { bulkDeleteConfirm = true }, { selectedCallerKeys = emptySet() }, onCallNumber)
                     1 -> ContactsViewV5(filteredContacts, search, { search = it }, onCallNumber, onPhoneChange)
                     else -> KeypadViewV5(phone, onPhoneChange, onDigit, onBackspace, onCall, status)
                 }
@@ -215,24 +225,90 @@ private fun SmartCallerHomeV5(phone: String, onPhoneChange: (String) -> Unit, on
             dismissButton = { TextButton(onClick = { deleteTarget = null }) { Text("Cancel", color = SCBlue) } }
         )
     }
+    if (bulkDeleteConfirm) {
+        val selectedGroups = filteredGroups.filter { it.key in selectedCallerKeys }
+        AlertDialog(
+            onDismissRequest = { bulkDeleteConfirm = false },
+            title = { Text("Delete selected callers?") },
+            text = { Text("Delete complete call history for ${selectedGroups.size} selected caller${if (selectedGroups.size == 1) "" else "s"}? This cannot be undone.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    selectedGroups.forEach { onDeleteCaller(it.number) }
+                    selectedCallerKeys = emptySet()
+                    bulkDeleteConfirm = false
+                }) { Text("Delete", color = SCRed, fontWeight = FontWeight.Bold) }
+            },
+            dismissButton = { TextButton(onClick = { bulkDeleteConfirm = false }) { Text("Cancel", color = SCBlue) } }
+        )
+    }
 }
 
 @Composable
 private fun SearchBoxV5(value: String, onValueChange: (String) -> Unit, hint: String) { OutlinedTextField(value, onValueChange, modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp), singleLine = true, placeholder = { Text("⌕  $hint") }, shape = RoundedCornerShape(18.dp), colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = SCBlue, unfocusedBorderColor = Color(0xFFD9E1EC), focusedContainerColor = Color.White, unfocusedContainerColor = Color.White)) }
 
 @Composable
-private fun RecentsViewV5(groups: List<V5CallGroup>, search: String, onSearch: (String) -> Unit, filter: String, onFilter: (String) -> Unit, onOpen: (V5CallGroup) -> Unit, onDelete: (V5CallGroup) -> Unit, onCall: (String) -> Unit) {
+private fun RecentsViewV5(
+    groups: List<V5CallGroup>,
+    search: String,
+    onSearch: (String) -> Unit,
+    filter: String,
+    onFilter: (String) -> Unit,
+    selectedKeys: Set<String>,
+    onToggleSelection: (String) -> Unit,
+    onOpen: (V5CallGroup) -> Unit,
+    onDelete: (V5CallGroup) -> Unit,
+    onBulkDelete: () -> Unit,
+    onClearSelection: () -> Unit,
+    onCall: (String) -> Unit
+) {
+    val selectionMode = selectedKeys.isNotEmpty()
     Column(Modifier.fillMaxSize()) {
-        SearchBoxV5(search, onSearch, "Search people or numbers")
-        Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) { listOf("All", "Missed", "Received", "Dialled").forEach { value -> FilterChip(selected = filter == value, onClick = { onFilter(value) }, label = { Text(value) }, colors = FilterChipDefaults.filterChipColors(selectedContainerColor = SCBlue, selectedLabelColor = Color.White)) } }
+        if (selectionMode) {
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("${selectedKeys.size} selected", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.ExtraBold, color = SCBlue, modifier = Modifier.weight(1f))
+                TextButton(onClick = onClearSelection) { Text("Cancel", color = SCBlue) }
+                FilledIconButton(
+                    onClick = onBulkDelete,
+                    colors = IconButtonDefaults.filledIconButtonColors(containerColor = SCRed, contentColor = Color.White)
+                ) { Text("⌫", fontWeight = FontWeight.Bold) }
+            }
+        } else {
+            SearchBoxV5(search, onSearch, "Search people or numbers")
+            Row(
+                Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                listOf("All", "Missed", "Received", "Dialled").forEach { value ->
+                    FilterChip(selected = filter == value, onClick = { onFilter(value) }, label = { Text(value) }, colors = FilterChipDefaults.filterChipColors(selectedContainerColor = SCBlue, selectedLabelColor = Color.White))
+                }
+            }
+        }
         LazyColumn(contentPadding = PaddingValues(horizontal = 20.dp, vertical = 2.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
-            item { Text("Recent calls", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold) }
-            items(groups, key = { it.key }) { group -> CallCardV5(group, { onOpen(group) }, { onDelete(group) }, { onCall(group.number) }) }
+            item {
+                Text(
+                    if (selectionMode) "Long-press callers to select" else "Recent calls",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.ExtraBold
+                )
+            }
+            items(groups, key = { it.key }) { group ->
+                CallCardV5(
+                    group = group,
+                    selected = group.key in selectedKeys,
+                    selectionMode = selectionMode,
+                    onOpen = { if (selectionMode) onToggleSelection(group.key) else onOpen(group) },
+                    onLongPress = { onToggleSelection(group.key) },
+                    onDelete = { onDelete(group) },
+                    onCall = { onCall(group.number) }
+                )
+            }
             if (groups.isEmpty()) item { EmptyStateV5("No calls found") }
         }
     }
 }
-
 @Composable
 private fun ContactsViewV5(contacts: List<V5ContactItem>, search: String, onSearch: (String) -> Unit, onCall: (String) -> Unit, onSelect: (String) -> Unit) {
     Column(Modifier.fillMaxSize()) {
@@ -260,20 +336,61 @@ private fun KeypadViewV5(phone: String, onPhoneChange: (String) -> Unit, onDigit
 private fun AvatarV5(name: String?, color: Color = SCBlue) { Box(Modifier.size(52.dp).clip(CircleShape).background(color.copy(alpha = .10f)).border(1.5.dp, color.copy(alpha = .22f), CircleShape), contentAlignment = Alignment.Center) { Text(initials(name), color = color, fontWeight = FontWeight.ExtraBold) } }
 
 @Composable
-private fun CallCardV5(group: V5CallGroup, onOpen: () -> Unit, onDelete: () -> Unit, onCall: () -> Unit) {
+private fun CallCardV5(
+    group: V5CallGroup,
+    selected: Boolean,
+    selectionMode: Boolean,
+    onOpen: () -> Unit,
+    onLongPress: () -> Unit,
+    onDelete: () -> Unit,
+    onCall: () -> Unit
+) {
     val color = if (group.latest.type == "Missed") SCRed else if (group.latest.type == "Dialled") SCBlue else SCGreen
-    Card(Modifier.fillMaxWidth().clickable(onClick = onOpen), shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(Color.White), elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
+    Card(
+        Modifier.fillMaxWidth().combinedClickable(onClick = onOpen, onLongClick = onLongPress),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = if (selected) Color(0xFFEAF2FF) else Color.White),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+    ) {
         Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-            AvatarV5(group.name, color); Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f)) { Row(verticalAlignment = Alignment.CenterVertically) { Text(group.name ?: "Unknown caller", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium); if (group.calls.size > 1) { Spacer(Modifier.width(7.dp)); Surface(shape = CircleShape, color = SCTint) { Text("${group.calls.size}", color = SCBlue, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)) } } }; Text(group.number, color = SCMuted, style = MaterialTheme.typography.bodySmall); Text("${group.latest.type} · ${group.latest.date}", color = color, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.labelSmall) }
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onDelete) { Text("⌫", color = SCRed, fontWeight = FontWeight.Bold) }
-                FilledIconButton(onClick = onCall, colors = IconButtonDefaults.filledIconButtonColors(containerColor = SCGreen, contentColor = Color.White)) { Text("☎") }
+            Box {
+                AvatarV5(group.name, color)
+                if (selected) {
+                    Surface(
+                        modifier = Modifier.align(Alignment.BottomEnd).size(22.dp),
+                        shape = CircleShape,
+                        color = SCBlue
+                    ) { Text("✓", color = Color.White, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center) }
+                }
+            }
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(group.name ?: "Unknown caller", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                    if (group.calls.size > 1) {
+                        Spacer(Modifier.width(7.dp))
+                        Surface(shape = CircleShape, color = SCTint) {
+                            Text("${group.calls.size}", color = SCBlue, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp))
+                        }
+                    }
+                }
+                Text(group.number, color = SCMuted, style = MaterialTheme.typography.bodySmall)
+                Text(
+                    "${group.latest.type}  •  ${group.latest.time}  •  ${formatDuration(group.latest.duration)}",
+                    color = color,
+                    fontWeight = FontWeight.SemiBold,
+                    style = MaterialTheme.typography.labelSmall
+                )
+            }
+            if (!selectionMode) {
+                Row(horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = onDelete) { Text("⌫", color = SCRed, fontWeight = FontWeight.Bold) }
+                    FilledIconButton(onClick = onCall, colors = IconButtonDefaults.filledIconButtonColors(containerColor = SCGreen, contentColor = Color.White)) { Text("☎") }
+                }
             }
         }
     }
 }
-
 @Composable
 private fun ContactCardV5(contact: V5ContactItem, onSelect: () -> Unit, onCall: () -> Unit) {
     Card(Modifier.fillMaxWidth().clickable(onClick = onSelect), shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(Color.White), elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
@@ -283,6 +400,14 @@ private fun ContactCardV5(contact: V5ContactItem, onSelect: () -> Unit, onCall: 
             FilledIconButton(onClick = onCall, colors = IconButtonDefaults.filledIconButtonColors(containerColor = SCGreen, contentColor = Color.White)) { Text("☎") }
         }
     }
+}
+
+private fun formatDuration(seconds: Long): String {
+    val safe = seconds.coerceAtLeast(0L)
+    val hours = safe / 3600
+    val minutes = (safe % 3600) / 60
+    val secs = safe % 60
+    return if (hours > 0) String.format("%d:%02d:%02d", hours, minutes, secs) else String.format("%d:%02d", minutes, secs)
 }
 
 @Composable
@@ -338,11 +463,17 @@ private fun HistoryDialogV5(
                             "Received" -> SCGreen
                             else -> SCBlue
                         }
-                        Row(Modifier.fillMaxWidth().padding(vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Row(Modifier.fillMaxWidth().padding(vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
                             Box(Modifier.size(9.dp).clip(CircleShape).background(color))
                             Spacer(Modifier.width(10.dp))
-                            Text(call.type, color = color, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                            Text(call.date, color = SCMuted, style = MaterialTheme.typography.labelMedium)
+                            Column(Modifier.weight(1f)) {
+                                Text(call.type, color = color, fontWeight = FontWeight.Bold)
+                                Text(call.date, color = SCMuted, style = MaterialTheme.typography.labelSmall)
+                            }
+                            Column(horizontalAlignment = Alignment.End) {
+                                Text(call.time, color = SCText, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.labelMedium)
+                                Text(formatDuration(call.duration), color = SCMuted, style = MaterialTheme.typography.labelSmall)
+                            }
                         }
                     }
                 }
