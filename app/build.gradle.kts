@@ -228,16 +228,8 @@ tasks.register("patchSmartCallerSource") {
 }
 
 tasks.register("patchMultiCallUi") {
-    doLast {
-        val source = file("src/main/java/com/limradigitals/realcaller/CallActivity.kt")
-        var text = source.readText()
-        if (!text.contains("MultiCallControls(Modifier.fillMaxWidth())")) {
-            val marker = "                Text(status, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = if (isSpam) SpamRed else if (isActive) Green else Blue)\n"
-            if (!text.contains(marker)) throw GradleException("Call status UI marker not found")
-            text = text.replace(marker, marker + "                MultiCallControls(Modifier.fillMaxWidth())\n")
-            source.writeText(text)
-        }
-    }
+    // CallActivity now owns the complete multi-call UI. Keep this task as a
+    // compatibility no-op for existing build wiring.
 }
 
 tasks.named("preBuild") { dependsOn("patchSmartCallerSource", "patchMultiCallUi") }
