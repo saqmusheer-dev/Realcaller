@@ -123,6 +123,7 @@ class CallActivity : ComponentActivity() {
                     dialpadText = dialpadText,
                     onAnswer = { call?.answer(VideoProfile.STATE_AUDIO_ONLY) },
                     onResume = { call?.let { InCallServiceImpl.instance?.unholdCall(it) }; heldByUser = false },
+                    onHold = { holdCurrentCall() },
                     onIgnore = {
                         // Ignore means silence the ringtone but keep the call ringing.
                         InCallServiceImpl.instance?.silenceRinger()
@@ -343,6 +344,7 @@ private fun CallScreen(
     dialpadText: String,
     onAnswer: () -> Unit,
     onResume: () -> Unit,
+    onHold: () -> Unit,
     onIgnore: () -> Unit,
     onReject: () -> Unit,
     onMute: () -> Unit,
@@ -489,7 +491,7 @@ private fun CallScreen(
                         }
                         Spacer(Modifier.height(8.dp))
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            OutlinedButton(onClick = { holdCurrentCall() }, modifier = Modifier.weight(1f).height(50.dp), shape = RoundedCornerShape(16.dp)) { Text("Hold") }
+                            OutlinedButton(onClick = onHold, modifier = Modifier.weight(1f).height(50.dp), shape = RoundedCornerShape(16.dp)) { Text("Hold") }
                             OutlinedButton(onClick = onAddCall, modifier = Modifier.weight(1f).height(50.dp), shape = RoundedCornerShape(16.dp)) { Text("New call") }
                         }
                         Spacer(Modifier.height(10.dp))
