@@ -197,7 +197,7 @@ private fun SmartCallerHomeV5(phone: String, onPhoneChange: (String) -> Unit, on
             }
             when (hubTab) {
                 0 -> when (tab) {
-                    0 -> RecentsViewV5(filteredGroups, search, { search = it }, phone, { phone = cleanNumber(it) }, { placeCall(phone) }, filter, { filter = it }, selectedCallerKeys, { key -> selectedCallerKeys = if (key in selectedCallerKeys) selectedCallerKeys - key else selectedCallerKeys + key }, { selectedGroup = it }, { deleteTarget = it }, { bulkDeleteConfirm = true }, { selectedCallerKeys = emptySet() }, onCallNumber)
+                    0 -> RecentsViewV5(filteredGroups, search, { search = it }, phone, onPhoneChange, { onCallNumber(phone) }, filter, { filter = it }, selectedCallerKeys, { key -> selectedCallerKeys = if (key in selectedCallerKeys) selectedCallerKeys - key else selectedCallerKeys + key }, { selectedGroup = it }, { deleteTarget = it }, { bulkDeleteConfirm = true }, { selectedCallerKeys = emptySet() }, onCallNumber)
                     1 -> ContactsViewV5(filteredContacts, search, { search = it }, onCallNumber, onPhoneChange)
                     else -> KeypadViewV5(phone, onPhoneChange, onDigit, onBackspace, onCall, status)
                 }
