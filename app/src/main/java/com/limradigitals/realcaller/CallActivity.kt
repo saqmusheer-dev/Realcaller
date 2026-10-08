@@ -47,6 +47,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -115,9 +116,9 @@ class CallActivity : ComponentActivity() {
                 android.view.WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
         )
         @Suppress("DEPRECATION")
-        window.statusBarColor = Blue
+        window.statusBarColor = Blue.toArgb()
         @Suppress("DEPRECATION")
-        window.navigationBarColor = Bg
+        window.navigationBarColor = Bg.toArgb()
         window.decorView.systemUiVisibility = 0
         setContent {
             Surface(color = Bg) {
