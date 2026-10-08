@@ -260,7 +260,7 @@ private fun NumberDialRowV5(
     ) {
         OutlinedTextField(
             value = value,
-            onValueChange = { onValueChange(cleanNumber(it)) },
+            onValueChange = onValueChange,
             modifier = Modifier.weight(1f),
             singleLine = true,
             placeholder = { Text("Type a number to call") },
@@ -305,7 +305,7 @@ private fun RecentsViewV5(
     onDelete: (V5CallGroup) -> Unit,
     onBulkDelete: () -> Unit,
     onClearSelection: () -> Unit,
-    onCall: (String) -> Unit
+    onCallNumber: (String) -> Unit
 ) {
     val selectionMode = selectedKeys.isNotEmpty()
     Column(Modifier.fillMaxSize()) {
@@ -349,7 +349,7 @@ private fun RecentsViewV5(
                     onOpen = { if (selectionMode) onToggleSelection(group.key) else onOpen(group) },
                     onLongPress = { onToggleSelection(group.key) },
                     onDelete = { onDelete(group) },
-                    onCall = { onCall(group.number) }
+                    onCall = { onCallNumber(group.number) }
                 )
             }
             if (groups.isEmpty()) item { EmptyStateV5("No calls found") }
