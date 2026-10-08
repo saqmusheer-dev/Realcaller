@@ -1,6 +1,5 @@
 package com.limradigitals.realcaller
 
-import android.content.Intent
 import android.telecom.Call
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -23,7 +22,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 
@@ -33,10 +31,8 @@ private val MultiRed = Color(0xFFD93636)
 private val MultiBg = Color(0xFFF0F5FA)
 
 @Composable
-fun MultiCallControls(modifier: Modifier = Modifier) {
+fun MultiCallControls(modifier: Modifier = Modifier, onAddCall: () -> Unit = {}) {
     var calls by remember { mutableStateOf<List<Call>>(emptyList()) }
-    val context = LocalContext.current
-
     LaunchedEffect(Unit) {
         while (true) {
             calls = InCallServiceImpl.instance?.getManagedCalls()?.filter { it.state != Call.STATE_DISCONNECTED } ?: emptyList()
@@ -138,14 +134,10 @@ fun MultiCallControls(modifier: Modifier = Modifier) {
             Spacer(Modifier.height(8.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(
-                    onClick = {
-                        context.startActivity(Intent(context, SmartCallerActivityV5::class.java).apply {
-                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                        })
-                    },
+                    onClick = onAddCall,
                     modifier = Modifier.weight(1f),
                     shape = RoundedCornerShape(14.dp)
-                ) { Text("Add call") }
+                ) { Text("New call") }
                 if (active != null) {
                     OutlinedButton(
                         onClick = { InCallServiceImpl.instance?.disconnectCall(active) },
