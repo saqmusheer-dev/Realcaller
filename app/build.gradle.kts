@@ -162,7 +162,7 @@ tasks.register("patchSmartCallerSource") {
         loadCalls()
         android.os.Handler(mainLooper).postDelayed({ loadCalls() }, 350L)
         val message = when {
-            deleted > 0 -> "Deleted $deleted call-log ${if (deleted == 1) "entry" else "entries"}"
+            deleted > 0 -> "Deleted " + deleted + " call-log " + if (deleted == 1) "entry" else "entries"
             deleted == 0 -> "No matching call-log entries found"
             else -> "Call-log permission is not available"
         }
