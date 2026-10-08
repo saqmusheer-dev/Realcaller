@@ -14,6 +14,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.provider.ContactsContract
+import android.provider.Settings
 import android.telecom.Call
 import android.telecom.InCallService
 import androidx.core.app.NotificationCompat
@@ -84,20 +85,9 @@ class InCallServiceImpl : InCallService() {
 
     /** Silences the current incoming ringtone without rejecting the call. */
     fun silenceRinger() {
-        try {
-            val audioManager = getSystemService(AudioManager::class.java) ?: return
-            val currentVolume = audioManager.getStreamVolume(AudioManager.STREAM_RING)
-            if (currentVolume <= 0) return
-            audioManager.setStreamVolume(AudioManager.STREAM_RING, 0, 0)
-            // Restore the user's previous ring volume shortly after the ignore action.
-            mainHandler.postDelayed({
-                try {
-                    if (audioManager.getStreamVolume(AudioManager.STREAM_RING) == 0) {
-                        audioManager.setStreamVolume(AudioManager.STREAM_RING, currentVolume, 0)
-                    }
-                } catch (_: Exception) { }
-            }, 2000L)
-        } catch (_: Exception) { }
+        // Do not change the user's global ring volume. Stopping the active ringtone
+        // gives the same "mute this call" behavior as the hardware volume keys.
+        stopIncomingRingtone()
     }
 
     fun answerCall(call: Call) {
@@ -194,11 +184,7 @@ class InCallServiceImpl : InCallService() {
     private fun startIncomingRingtone() {
         try {
             if (incomingRingtone?.isPlaying == true) return
-            val uri = getSharedPreferences(SettingsActivity.PREFS, MODE_PRIVATE)
-                .getString(SettingsActivity.KEY_RINGTONE, null)
-                ?.let { Uri.parse(it) }
-                ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
-
+            val uri = resolveIncomingRingtoneUri()
             val ringtone = RingtoneManager.getRingtone(this, uri) ?: return
             ringtone.setAudioAttributes(
                 AudioAttributes.Builder()
@@ -211,6 +197,47 @@ class InCallServiceImpl : InCallService() {
             ringtone.play()
         } catch (_: Exception) {
             incomingRingtone = null
+        }
+    }
+
+    /**
+     * Resolves the ringtone for the SIM that owns this incoming call.
+     * Many OEM dual-SIM builds expose SIM 2's ringtone as Settings.System
+     * "ringtone_2"; AOSP's normal RingtoneManager API is global and can otherwise
+     * make both SIMs use SIM 1's tone.
+     */
+    private fun resolveIncomingRingtoneUri(): Uri {
+        val call = currentCall
+        val handle = call?.details?.accountHandle
+        val subId = handle?.id?.toIntOrNull()
+        val slot = if (subId != null) resolveSlotForSubscription(subId) else -1
+
+        if (slot >= 0) {
+            val systemKey = if (slot == 0) Settings.System.RINGTONE else if (slot == 1) "ringtone_2" else null
+            if (systemKey != null) {
+                try {
+                    val systemUri = Settings.System.getString(contentResolver, systemKey)
+                        ?.takeIf { it.isNotBlank() }
+                        ?.let(Uri::parse)
+                    if (systemUri != null) return systemUri
+                } catch (_: Exception) { }
+            }
+        }
+
+        return getSharedPreferences(SettingsActivity.PREFS, MODE_PRIVATE)
+            .getString(SettingsActivity.KEY_RINGTONE, null)
+            ?.let { Uri.parse(it) }
+            ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
+    }
+
+    private fun resolveSlotForSubscription(subId: Int): Int {
+        return try {
+            val sm = getSystemService(android.telephony.SubscriptionManager::class.java)
+            sm?.getActiveSubscriptionInfo(subId)?.simSlotIndex ?: -1
+        } catch (_: SecurityException) {
+            -1
+        } catch (_: Exception) {
+            -1
         }
     }
 
