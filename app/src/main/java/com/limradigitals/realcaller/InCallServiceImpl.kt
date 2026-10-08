@@ -269,7 +269,7 @@ class InCallServiceImpl : InCallService() {
 
     private fun showCallNotification(call: Call) {
         val handle = call.details.handle?.schemeSpecificPart.orEmpty()
-        val contactName = call.details.contactDisplayName?.takeIf { it.isNotBlank() } ?: lookupContactName(handle)
+        val contactName = call.details.contactDisplayName?.takeIf { it.isNotBlank() && !it.equals(handle, ignoreCase = true) } ?: lookupContactName(handle)
         val record = if (handle.isNotBlank()) callerRepository.lookup(handle) else null
         val isSpam = record?.level == ReputationLevel.SPAM || record?.level == ReputationLevel.SCAM
         val displayName = contactName ?: record?.displayName ?: handle.ifBlank { "Unknown caller" }
@@ -280,7 +280,7 @@ class InCallServiceImpl : InCallService() {
         }
         val pending = PendingIntent.getActivity(this, 700, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val builder = NotificationCompat.Builder(this, channel)
-            .setSmallIcon(com.limradigitals.realcaller.R.drawable.ic_smartcaller_notification)
+            .setSmallIcon(com.limradigitals.realcaller.R.drawable.ic_smartcaller_notification_bell)
             .setContentTitle(
                 when {
                     ringing && isSpam -> "⚠ Spam call · $displayName"
@@ -317,11 +317,24 @@ class InCallServiceImpl : InCallService() {
 
     private fun lookupContactName(number: String): String? {
         if (number.isBlank()) return null
+        if (checkSelfPermission(android.Manifest.permission.READ_CONTACTS) != android.content.pm.PackageManager.PERMISSION_GRANTED) return null
+
+        val candidates = linkedSetOf<String>().apply {
+            add(number)
+            val digits = number.filter { it.isDigit() }
+            if (digits.isNotBlank()) add(digits)
+            if (digits.length > 10) add(digits.takeLast(10))
+        }
+
         return try {
-            val uri = Uri.withAppendedPath(ContactsContract.PhoneLookup.CONTENT_FILTER_URI, Uri.encode(number))
-            contentResolver.query(uri, arrayOf(ContactsContract.PhoneLookup.DISPLAY_NAME), null, null, null)?.use { c ->
-                if (c.moveToFirst()) c.getString(0)?.takeIf { it.isNotBlank() } else null
+            for (candidate in candidates) {
+                val uri = Uri.withAppendedPath(ContactsContract.PhoneLookup.CONTENT_FILTER_URI, Uri.encode(candidate))
+                val name = contentResolver.query(uri, arrayOf(ContactsContract.PhoneLookup.DISPLAY_NAME), null, null, null)?.use { c ->
+                    if (c.moveToFirst()) c.getString(0)?.takeIf { it.isNotBlank() && !it.equals(number, ignoreCase = true) } else null
+                }
+                if (!name.isNullOrBlank()) return name
             }
+            null
         } catch (_: SecurityException) { null } catch (_: Exception) { null }
     }
 
