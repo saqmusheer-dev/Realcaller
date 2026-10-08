@@ -121,6 +121,7 @@ class SmartCallerActivityV5 : ComponentActivity() {
     private fun deleteCallerHistory(number: String): Int {
         val deleted = CallLogManager.deleteCallerHistory(this, number)
         loadCalls()
+        android.os.Handler(mainLooper).postDelayed({ loadCalls() }, 350L)
         val message = when {
             deleted > 0 -> "Deleted $deleted call-log ${if (deleted == 1) "entry" else "entries"}"
             deleted == 0 -> "No call-log entries were deleted"
@@ -196,7 +197,7 @@ private fun SmartCallerHomeV5(phone: String, onPhoneChange: (String) -> Unit, on
             }
             when (hubTab) {
                 0 -> when (tab) {
-                    0 -> RecentsViewV5(filteredGroups, search, { search = it }, filter, { filter = it }, selectedCallerKeys, { key -> selectedCallerKeys = if (key in selectedCallerKeys) selectedCallerKeys - key else selectedCallerKeys + key }, { selectedGroup = it }, { deleteTarget = it }, { bulkDeleteConfirm = true }, { selectedCallerKeys = emptySet() }, onCallNumber)
+                    0 -> RecentsViewV5(filteredGroups, search, { search = it }, phone, { phone = cleanNumber(it) }, { placeCall(phone) }, filter, { filter = it }, selectedCallerKeys, { key -> selectedCallerKeys = if (key in selectedCallerKeys) selectedCallerKeys - key else selectedCallerKeys + key }, { selectedGroup = it }, { deleteTarget = it }, { bulkDeleteConfirm = true }, { selectedCallerKeys = emptySet() }, onCallNumber)
                     1 -> ContactsViewV5(filteredContacts, search, { search = it }, onCallNumber, onPhoneChange)
                     else -> KeypadViewV5(phone, onPhoneChange, onDigit, onBackspace, onCall, status)
                 }
@@ -248,10 +249,54 @@ private fun SmartCallerHomeV5(phone: String, onPhoneChange: (String) -> Unit, on
 private fun SearchBoxV5(value: String, onValueChange: (String) -> Unit, hint: String) { OutlinedTextField(value, onValueChange, modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp), singleLine = true, placeholder = { Text("⌕  $hint") }, shape = RoundedCornerShape(18.dp), colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = SCBlue, unfocusedBorderColor = Color(0xFFD9E1EC), focusedContainerColor = Color.White, unfocusedContainerColor = Color.White)) }
 
 @Composable
+private fun NumberDialRowV5(
+    value: String,
+    onValueChange: (String) -> Unit,
+    onCall: () -> Unit
+) {
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        OutlinedTextField(
+            value = value,
+            onValueChange = { onValueChange(cleanNumber(it)) },
+            modifier = Modifier.weight(1f),
+            singleLine = true,
+            placeholder = { Text("Type a number to call") },
+            leadingIcon = { Text("☎", color = SCBlue) },
+            shape = RoundedCornerShape(18.dp),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = SCBlue,
+                unfocusedBorderColor = Color(0xFFD9E1EC),
+                focusedContainerColor = Color.White,
+                unfocusedContainerColor = Color.White
+            )
+        )
+        Spacer(Modifier.width(8.dp))
+        FilledIconButton(
+            onClick = onCall,
+            enabled = value.isNotBlank(),
+            colors = IconButtonDefaults.filledIconButtonColors(
+                containerColor = SCGreen,
+                contentColor = Color.White,
+                disabledContainerColor = Color(0xFFDDE3EA),
+                disabledContentColor = Color.White
+            )
+        ) {
+            Text("☎")
+        }
+    }
+}
+
+@Composable
 private fun RecentsViewV5(
     groups: List<V5CallGroup>,
     search: String,
     onSearch: (String) -> Unit,
+    phone: String,
+    onPhoneChange: (String) -> Unit,
+    onCall: () -> Unit,
     filter: String,
     onFilter: (String) -> Unit,
     selectedKeys: Set<String>,
@@ -278,6 +323,7 @@ private fun RecentsViewV5(
             }
         } else {
             SearchBoxV5(search, onSearch, "Search people or numbers")
+            NumberDialRowV5(phone, onPhoneChange, onCall)
             Row(
                 Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 12.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
