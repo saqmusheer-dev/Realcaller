@@ -280,7 +280,7 @@ class InCallServiceImpl : InCallService() {
         }
         val pending = PendingIntent.getActivity(this, 700, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val builder = NotificationCompat.Builder(this, channel)
-            .setSmallIcon(com.limradigitals.realcaller.R.drawable.ic_smartcaller)
+            .setSmallIcon(com.limradigitals.realcaller.R.drawable.ic_smartcaller_notification)
             .setContentTitle(
                 when {
                     ringing && isSpam -> "⚠ Spam call · $displayName"
