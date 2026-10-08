@@ -27,6 +27,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.windowInsetsTopHeight
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -111,6 +114,11 @@ class CallActivity : ComponentActivity() {
             android.view.WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
                 android.view.WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
         )
+        @Suppress("DEPRECATION")
+        window.statusBarColor = Blue
+        @Suppress("DEPRECATION")
+        window.navigationBarColor = Bg
+        window.decorView.systemUiVisibility = 0
         setContent {
             Surface(color = Bg) {
                 CallScreen(
@@ -368,14 +376,15 @@ private fun CallScreen(
     val displayName = contactName ?: telecomName ?: callerRecord?.displayName ?: number
     val isRinging = state == Call.STATE_RINGING
     val isActive = state == Call.STATE_ACTIVE
+    val isHolding = state == Call.STATE_HOLDING
     val isSpam = isRinging && (callerRecord?.level == ReputationLevel.SPAM || callerRecord?.level == ReputationLevel.SCAM)
     val status = when {
         isSpam -> "Potential spam call"
-        state == Call.STATE_RINGING -> "Incoming call"
+        isRinging -> "Incoming call"
         state == Call.STATE_DIALING -> "Calling…"
         state == Call.STATE_CONNECTING -> "Connecting…"
-        state == Call.STATE_ACTIVE -> "Connected"
-        state == Call.STATE_HOLDING -> "On hold"
+        isActive -> "Connected"
+        isHolding -> "On hold"
         state == Call.STATE_DISCONNECTED -> "Call ended"
         else -> "Connecting…"
     }
@@ -384,170 +393,251 @@ private fun CallScreen(
     }.uppercase()
 
     Column(
-        modifier = Modifier.fillMaxSize().background(Bg).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 18.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
+        modifier = Modifier.fillMaxSize().background(Bg).verticalScroll(rememberScrollState()),
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Surface(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(32.dp),
-            color = if (isSpam) SpamBg else Color.White,
-            shadowElevation = if (isSpam) 6.dp else 3.dp
-        ) {
-            Column(
-                modifier = Modifier.padding(horizontal = 22.dp, vertical = 28.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
+        Column(modifier = Modifier.fillMaxWidth().background(Blue)) {
+            Spacer(Modifier.fillMaxWidth().windowInsetsTopHeight(WindowInsets.statusBars))
+            Row(
+                modifier = Modifier.fillMaxWidth().height(38.dp).padding(horizontal = 18.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("SmartCaller", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = if (isSpam) SpamRed else Blue)
+                Text("SmartCaller", color = Color.White, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.ExtraBold)
+                Spacer(Modifier.weight(1f))
+                Surface(shape = RoundedCornerShape(50.dp), color = Color.White.copy(alpha = 0.16f)) {
+                    Text(
+                        if (isRinging) "INCOMING" else if (isActive) "LIVE" else if (isHolding) "HOLD" else "CALL",
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                        color = Color.White,
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        }
 
-                if (isSpam) {
-                    Spacer(Modifier.height(12.dp))
-                    Surface(shape = RoundedCornerShape(50.dp), color = SpamRed) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(30.dp),
+                color = if (isSpam) SpamBg else Color.White,
+                shadowElevation = 4.dp
+            ) {
+                Column(
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 22.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    if (isSpam) {
+                        Surface(shape = RoundedCornerShape(50.dp), color = SpamRed) {
+                            Text(
+                                "⚠  SPAM CALL",
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
+                                color = Color.White,
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.ExtraBold
+                            )
+                        }
+                        Spacer(Modifier.height(12.dp))
+                    }
+
+                    Box(
+                        Modifier.size(86.dp).clip(CircleShape)
+                            .background(if (isSpam) Color(0xFFFFD2CE) else Color(0xFFE8F2FF))
+                            .border(2.dp, if (isSpam) Color(0xFFF39A91) else Color(0xFFB7D1EA), CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
                         Text(
-                            "⚠ SPAM CALL",
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 7.dp),
-                            color = Color.White,
-                            style = MaterialTheme.typography.labelLarge,
-                            fontWeight = FontWeight.ExtraBold
+                            initials,
+                            style = MaterialTheme.typography.headlineMedium,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = if (isSpam) SpamRed else Blue
+                        )
+                    }
+
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        displayName,
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.ExtraBold,
+                        textAlign = TextAlign.Center,
+                        color = Color(0xFF17202A)
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(number, style = MaterialTheme.typography.bodyMedium, color = Color(0xFF687684), textAlign = TextAlign.Center)
+
+                    if (isSpam && callerRecord != null) {
+                        Spacer(Modifier.height(6.dp))
+                        val reports = callerRecord.reportCount
+                        Text(
+                            if (reports > 0) "${reports} user report${if (reports == 1) "" else "s"}" else "SmartCaller warning",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = SpamRed
+                        )
+                    } else if (contactName != null || telecomName != null) {
+                        Spacer(Modifier.height(5.dp))
+                        Text("✓ Saved contact", color = Green, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelSmall)
+                    }
+
+                    Spacer(Modifier.height(10.dp))
+                    Surface(
+                        shape = RoundedCornerShape(50.dp),
+                        color = when {
+                            isSpam -> Color(0xFFFFDAD6)
+                            isActive -> Color(0xFFE7F7EF)
+                            isHolding -> Color(0xFFE8F0FA)
+                            else -> Color(0xFFF1F5F9)
+                        }
+                    ) {
+                        Text(
+                            status,
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
+                            color = when {
+                                isSpam -> SpamRed
+                                isActive -> Green
+                                else -> Blue
+                            },
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    if (recordMessage.isNotBlank() && (isActive || isHolding)) {
+                        Spacer(Modifier.height(7.dp))
+                        Text(
+                            recordMessage,
+                            color = if (recording) Red else Color(0xFF687684),
+                            style = MaterialTheme.typography.labelSmall,
+                            textAlign = TextAlign.Center
                         )
                     }
                 }
+            }
 
-                Spacer(Modifier.height(22.dp))
-                Box(
-                    Modifier.size(96.dp)
-                        .clip(CircleShape)
-                        .background(if (isSpam) Color(0xFFFFD2CE) else Color(0xFFE7F1FC))
-                        .border(2.dp, if (isSpam) Color(0xFFF39A91) else Color(0xFFB7D1EA), CircleShape),
-                    contentAlignment = Alignment.Center
+            Spacer(Modifier.height(14.dp))
+
+            if (isRinging) {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(24.dp),
+                    color = Color.White,
+                    shadowElevation = 2.dp
                 ) {
-                    Text(initials, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold, color = if (isSpam) SpamRed else Blue)
+                    Row(Modifier.padding(12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        if (isSpam) CallActionButton("Ignore", "✕", SpamRed, false, onIgnore, Modifier.weight(1f))
+                        CallActionButton("Decline", "✕", Red, true, onReject, Modifier.weight(1f))
+                        CallActionButton("Answer", "☎", Green, true, onAnswer, Modifier.weight(1f))
+                    }
                 }
-                Spacer(Modifier.height(16.dp))
-                Text(displayName, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold, textAlign = TextAlign.Center, color = Color(0xFF17202A))
-                if (contactName != null || telecomName != null || callerRecord?.displayName != null) {
-                    Spacer(Modifier.height(6.dp))
-                    Text(number, style = MaterialTheme.typography.bodyLarge, color = Color(0xFF687684))
-                }
-                if (isSpam && callerRecord != null) {
-                    Spacer(Modifier.height(7.dp))
-                    val reports = callerRecord.reportCount
-                    Text(
-                        if (reports > 0) "$reports user report${if (reports == 1) "" else "s"}" else "SmartCaller warning",
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = SpamRed
+            } else if (isActive) {
+                if (showDialpad) {
+                    InCallDialpad(
+                        mode = dialpadMode,
+                        text = dialpadText,
+                        onDigit = if (dialpadMode == DialpadMode.DTMF) onDtmfDigit else onNewCallDigit,
+                        onBackspace = onNewCallBackspace,
+                        onCall = onPlaceNewCall,
+                        onClose = onCloseDialpad
                     )
-                } else if (contactName != null || telecomName != null) {
-                    Spacer(Modifier.height(6.dp))
-                    Text("✓ Contact", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = Green)
-                }
-                Spacer(Modifier.height(12.dp))
-                Text(status, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = if (isSpam) SpamRed else if (isActive) Green else Blue)
-                if (recordMessage.isNotBlank() && isActive) {
-                    Spacer(Modifier.height(8.dp))
-                    Text(recordMessage, color = if (recording) Red else Color(0xFF687684), style = MaterialTheme.typography.labelMedium)
-                }
-                Spacer(Modifier.height(34.dp))
-
-                if (isRinging && isSpam) {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        OutlinedButton(
-                            onClick = onIgnore,
-                            modifier = Modifier.weight(1f).height(56.dp),
-                            shape = RoundedCornerShape(17.dp),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, SpamRed)
-                        ) {
-                            Text("Ignore", fontWeight = FontWeight.Bold, color = SpamRed)
-                        }
-                        Button(
-                            onClick = onReject,
-                            modifier = Modifier.weight(1f).height(56.dp),
-                            shape = RoundedCornerShape(17.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = Red)
-                        ) {
-                            Text("Decline", fontWeight = FontWeight.Bold)
-                        }
-                        Button(
-                            onClick = onAnswer,
-                            modifier = Modifier.weight(1f).height(56.dp),
-                            shape = RoundedCornerShape(17.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = Green)
-                        ) {
-                            Text("Accept", fontWeight = FontWeight.Bold)
-                        }
-                    }
-                } else if (isRinging) {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                        Button(onClick = onReject, modifier = Modifier.weight(1f).height(58.dp), shape = RoundedCornerShape(18.dp), colors = ButtonDefaults.buttonColors(containerColor = Red)) {
-                            Text("Decline", fontWeight = FontWeight.Bold)
-                        }
-                        Button(onClick = onAnswer, modifier = Modifier.weight(1f).height(58.dp), shape = RoundedCornerShape(18.dp), colors = ButtonDefaults.buttonColors(containerColor = Green)) {
-                            Text("Answer", fontWeight = FontWeight.Bold)
-                        }
-                    }
-                } else if (isActive) {
-                    if (!showDialpad) {
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            OutlinedButton(onClick = onMute, modifier = Modifier.weight(1f).height(52.dp), shape = RoundedCornerShape(17.dp)) { Text(if (muted) "Unmute" else "Mute") }
-                            OutlinedButton(onClick = onSpeaker, modifier = Modifier.weight(1f).height(52.dp), shape = RoundedCornerShape(17.dp)) { Text(if (speaker) "Earpiece" else "Speaker") }
-                            OutlinedButton(onClick = onToggleDialpad, modifier = Modifier.weight(1f).height(52.dp), shape = RoundedCornerShape(17.dp)) { Text("Keypad") }
-                        }
-                        Spacer(Modifier.height(8.dp))
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            OutlinedButton(onClick = onHold, modifier = Modifier.weight(1f).height(50.dp), shape = RoundedCornerShape(16.dp)) { Text("Hold") }
-                            OutlinedButton(onClick = onAddCall, modifier = Modifier.weight(1f).height(50.dp), shape = RoundedCornerShape(16.dp)) { Text("New call") }
-                        }
-                        Spacer(Modifier.height(10.dp))
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            OutlinedButton(onClick = onAddCall, modifier = Modifier.weight(1f).height(52.dp), shape = RoundedCornerShape(17.dp)) { Text("New call") }
-                            OutlinedButton(onClick = onRecord, modifier = Modifier.weight(1f).height(52.dp), shape = RoundedCornerShape(17.dp)) {
-                                Text(if (recording) "■ Recording" else "● Record call", fontWeight = FontWeight.Bold, color = if (recording) Red else Blue)
+                } else {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(26.dp),
+                        color = Color.White,
+                        shadowElevation = 2.dp
+                    ) {
+                        Column(Modifier.padding(12.dp)) {
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                CallActionButton("Mute", "MIC", Blue, muted, onMute, Modifier.weight(1f))
+                                CallActionButton("Speaker", "SPK", Blue, speaker, onSpeaker, Modifier.weight(1f))
+                                CallActionButton("Keypad", "123", Blue, false, onToggleDialpad, Modifier.weight(1f))
+                            }
+                            Spacer(Modifier.height(10.dp))
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                CallActionButton("Hold", "Ⅱ", Blue, false, onHold, Modifier.weight(1f))
+                                CallActionButton("New call", "+", Blue, false, onAddCall, Modifier.weight(1f))
+                                CallActionButton("Record", "●", if (recording) Red else Blue, recording, onRecord, Modifier.weight(1f))
                             }
                         }
-                    } else {
-                        InCallDialpad(
-                            mode = dialpadMode,
-                            text = dialpadText,
-                            onDigit = if (dialpadMode == DialpadMode.DTMF) onDtmfDigit else onNewCallDigit,
-                            onBackspace = onNewCallBackspace,
-                            onCall = onPlaceNewCall,
-                            onClose = onCloseDialpad
-                        )
                     }
-                    Spacer(Modifier.height(12.dp))
-                    MultiCallControls(
-                        modifier = Modifier.fillMaxWidth(),
-                        onAddCall = onAddCall
-                    )
-                    Spacer(Modifier.height(12.dp))
-                    Button(onClick = onEnd, modifier = Modifier.fillMaxWidth().height(58.dp), shape = RoundedCornerShape(20.dp), colors = ButtonDefaults.buttonColors(containerColor = Red)) {
-                        Text("End call", fontWeight = FontWeight.ExtraBold)
+                }
+
+                Spacer(Modifier.height(10.dp))
+                MultiCallControls(modifier = Modifier.fillMaxWidth(), onAddCall = onAddCall)
+                Spacer(Modifier.height(10.dp))
+
+                Button(
+                    onClick = onEnd,
+                    modifier = Modifier.fillMaxWidth().height(60.dp),
+                    shape = RoundedCornerShape(22.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Red),
+                    elevation = ButtonDefaults.buttonElevation(defaultElevation = 4.dp)
+                ) {
+                    Text("End call", fontWeight = FontWeight.ExtraBold, style = MaterialTheme.typography.titleMedium)
+                }
+            } else if (isHolding) {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(24.dp),
+                    color = Color.White,
+                    shadowElevation = 2.dp
+                ) {
+                    Column(Modifier.padding(14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("Your call is safely on hold", color = Blue, fontWeight = FontWeight.Bold)
+                        Spacer(Modifier.height(12.dp))
+                        Button(
+                            onClick = onResume,
+                            modifier = Modifier.fillMaxWidth().height(54.dp),
+                            shape = RoundedCornerShape(18.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = Blue)
+                        ) { Text("Resume call", fontWeight = FontWeight.ExtraBold) }
                     }
-                } else if (state == Call.STATE_HOLDING) {
-                    Text("Call on hold", color = Blue, fontWeight = FontWeight.Bold)
-                    Spacer(Modifier.height(14.dp))
-                    Button(
-                        onClick = onResume,
-                        modifier = Modifier.fillMaxWidth().height(56.dp),
-                        shape = RoundedCornerShape(18.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Blue)
-                    ) { Text("Resume call", fontWeight = FontWeight.ExtraBold) }
-                    Spacer(Modifier.height(12.dp))
-                    Button(
-                        onClick = onEnd,
-                        modifier = Modifier.fillMaxWidth().height(56.dp),
-                        shape = RoundedCornerShape(18.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Red)
-                    ) { Text("End call", fontWeight = FontWeight.ExtraBold) }
-                } else {
-                    OutlinedButton(onClick = onEnd, modifier = Modifier.height(52.dp), shape = RoundedCornerShape(17.dp)) { Text("Cancel") }
+                }
+                Spacer(Modifier.height(10.dp))
+                Button(
+                    onClick = onEnd,
+                    modifier = Modifier.fillMaxWidth().height(58.dp),
+                    shape = RoundedCornerShape(20.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Red)
+                ) { Text("End call", fontWeight = FontWeight.ExtraBold) }
+            } else {
+                OutlinedButton(onClick = onEnd, modifier = Modifier.height(52.dp), shape = RoundedCornerShape(17.dp)) {
+                    Text("Cancel")
                 }
             }
         }
     }
 }
 
+@androidx.compose.runtime.Composable
+private fun CallActionButton(
+    label: String,
+    symbol: String,
+    color: Color,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val background = if (selected) color else Color(0xFFF3F6FA)
+    val content = if (selected) Color.White else Color(0xFF263442)
+
+    androidx.compose.material3.Surface(
+        modifier = modifier.height(76.dp),
+        onClick = onClick,
+        shape = RoundedCornerShape(19.dp),
+        color = background,
+        border = if (selected) null else androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE1E7EF))
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+            Text(symbol, color = if (selected) Color.White else color, fontWeight = FontWeight.ExtraBold, style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(3.dp))
+            Text(label, color = content, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelSmall)
+        }
+    }
+}
 
 private enum class DialpadMode { DTMF, NEW_CALL }
 
@@ -560,81 +650,102 @@ private fun InCallDialpad(
     onCall: () -> Unit,
     onClose: () -> Unit
 ) {
-    Column(
+    Surface(
         modifier = Modifier.fillMaxWidth(),
-        horizontalAlignment = Alignment.CenterHorizontally
+        shape = RoundedCornerShape(26.dp),
+        color = Color.White,
+        shadowElevation = 3.dp
     ) {
-        Row(
-            Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                if (mode == DialpadMode.NEW_CALL) "New call" else "Dial pad",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                color = Blue
-            )
-            OutlinedButton(onClick = onClose, shape = RoundedCornerShape(14.dp)) { Text("Close") }
-        }
+        Column(Modifier.padding(horizontal = 14.dp, vertical = 14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text(
+                        if (mode == DialpadMode.NEW_CALL) "New call" else "In-call keypad",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = Blue
+                    )
+                    Text(
+                        if (mode == DialpadMode.NEW_CALL) "Enter a number to add another call" else "For IVR: press 1, 2, *, #…",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color(0xFF687684)
+                    )
+                }
+                OutlinedButton(onClick = onClose, shape = RoundedCornerShape(14.dp)) { Text("Close") }
+            }
 
-        Surface(
-            modifier = Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 8.dp),
-            shape = RoundedCornerShape(16.dp),
-            color = Color(0xFFF5F8FC)
-        ) {
-            Text(
-                text.ifBlank { if (mode == DialpadMode.NEW_CALL) "Enter number" else "DTMF ready" },
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 12.dp),
-                textAlign = TextAlign.Center,
-                style = MaterialTheme.typography.titleLarge,
-                color = Color(0xFF27313B),
-                fontWeight = FontWeight.SemiBold
-            )
-        }
+            Surface(
+                modifier = Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 10.dp),
+                shape = RoundedCornerShape(17.dp),
+                color = Color(0xFFF2F6FA)
+            ) {
+                Text(
+                    text.ifBlank { if (mode == DialpadMode.NEW_CALL) "Enter number" else "Ready for IVR" },
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 13.dp),
+                    textAlign = TextAlign.Center,
+                    style = MaterialTheme.typography.titleLarge,
+                    color = Color(0xFF1E2A36),
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
 
-        val rows = listOf(
-            listOf('1', '2', '3'),
-            listOf('4', '5', '6'),
-            listOf('7', '8', '9'),
-            listOf('*', '0', '#')
-        )
-        rows.forEach { row ->
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                row.forEach { digit ->
-                    OutlinedButton(
-                        onClick = { onDigit(digit) },
-                        modifier = Modifier.weight(1f).height(50.dp),
-                        shape = RoundedCornerShape(16.dp)
-                    ) {
-                        Text(digit.toString(), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            val rows = listOf(
+                listOf('1', '2', '3'),
+                listOf('4', '5', '6'),
+                listOf('7', '8', '9'),
+                listOf('*', '0', '#')
+            )
+            rows.forEach { row ->
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                    row.forEach { digit ->
+                        androidx.compose.material3.Surface(
+                            onClick = { onDigit(digit) },
+                            modifier = Modifier.weight(1f).height(56.dp),
+                            shape = RoundedCornerShape(17.dp),
+                            color = Color(0xFFF5F8FC),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE0E7EF))
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Text(
+                                    digit.toString(),
+                                    style = MaterialTheme.typography.titleLarge,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = Color(0xFF1F2C39)
+                                )
+                            }
+                        }
                     }
                 }
+                Spacer(Modifier.height(8.dp))
             }
-            Spacer(Modifier.height(8.dp))
-        }
 
-        if (mode == DialpadMode.NEW_CALL) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                OutlinedButton(
-                    onClick = onBackspace,
-                    modifier = Modifier.weight(1f).height(50.dp),
-                    shape = RoundedCornerShape(16.dp)
-                ) { Text("⌫") }
-                Button(
-                    onClick = onCall,
-                    modifier = Modifier.weight(2f).height(50.dp),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Green)
-                ) { Text("Call", fontWeight = FontWeight.ExtraBold) }
+            if (mode == DialpadMode.NEW_CALL) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                    OutlinedButton(
+                        onClick = onBackspace,
+                        modifier = Modifier.weight(1f).height(52.dp),
+                        shape = RoundedCornerShape(16.dp)
+                    ) { Text("⌫", style = MaterialTheme.typography.titleMedium) }
+                    Button(
+                        onClick = onCall,
+                        modifier = Modifier.weight(2f).height(52.dp),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Green)
+                    ) { Text("Call", fontWeight = FontWeight.ExtraBold) }
+                }
+            } else {
+                Text(
+                    "Tap a key to send DTMF tones to the connected call",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color(0xFF687684),
+                    textAlign = TextAlign.Center
+                )
             }
-        } else {
-            Text(
-                "Tap a key to send tones to the connected call",
-                style = MaterialTheme.typography.labelMedium,
-                color = Color(0xFF687684),
-                textAlign = TextAlign.Center
-            )
         }
     }
 }
+
