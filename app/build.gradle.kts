@@ -160,6 +160,13 @@ tasks.register("patchSmartCallerSource") {
     private fun deleteCallerHistory(number: String): Int {
         val deleted = CallLogManager.deleteCallerHistory(this, number)
         loadCalls()
+        android.os.Handler(mainLooper).postDelayed({ loadCalls() }, 350L)
+        val message = when {
+            deleted > 0 -> "Deleted $deleted call-log ${if (deleted == 1) "entry" else "entries"}"
+            deleted == 0 -> "No matching call-log entries found"
+            else -> "Call-log permission is not available"
+        }
+        android.widget.Toast.makeText(this, message, android.widget.Toast.LENGTH_SHORT).show()
         return deleted
     }
 
