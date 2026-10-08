@@ -10,6 +10,7 @@ import android.os.Looper
 import android.provider.ContactsContract
 import android.telecom.Call
 import android.telecom.CallAudioState
+import android.telecom.TelecomManager
 import android.telecom.VideoProfile
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -115,6 +116,9 @@ class CallActivity : ComponentActivity() {
                     speaker = speaker,
                     recording = recording,
                     recordMessage = recordMessage,
+                    showDialpad = showDialpad,
+                    dialpadMode = dialpadMode,
+                    dialpadText = dialpadText,
                     onAnswer = { call?.answer(VideoProfile.STATE_AUDIO_ONLY) },
                     onIgnore = {
                         // Ignore means silence the ringtone but keep the call ringing.
@@ -134,7 +138,14 @@ class CallActivity : ComponentActivity() {
                         )
                     },
                     onRecord = { toggleRecording() },
-                    onEnd = { stopRecording(); call?.disconnect() }
+                    onEnd = { stopRecording(); call?.disconnect() },
+                    onToggleDialpad = { showDialpad = !showDialpad },
+                    onAddCall = { prepareNewCall() },
+                    onDtmfDigit = { sendDtmf(it) },
+                    onNewCallDigit = { digit -> if (dialpadText.length < 24) dialpadText += digit },
+                    onNewCallBackspace = { if (dialpadText.isNotEmpty()) dialpadText = dialpadText.dropLast(1) },
+                    onPlaceNewCall = { placeNewCall(dialpadText) },
+                    onCloseDialpad = { showDialpad = false; dialpadMode = DialpadMode.DTMF; dialpadText = "" }
                 )
             }
         }
@@ -151,6 +162,90 @@ class CallActivity : ComponentActivity() {
             return true
         }
         return super.onKeyDown(keyCode, event)
+    }
+
+    private fun prepareNewCall() {
+        val active = InCallServiceImpl.instance?.getManagedCalls()
+            ?.firstOrNull { it.state == Call.STATE_ACTIVE }
+            ?: call?.takeIf { it.state == Call.STATE_ACTIVE }
+
+        if (active == null) {
+            recordMessage = "No active call to hold"
+            showDialpad = true
+            dialpadMode = DialpadMode.NEW_CALL
+            return
+        }
+
+        val canHold = (active.details.callCapabilities and Call.Details.CAPABILITY_HOLD) != 0
+        if (!canHold) {
+            recordMessage = "This call cannot be put on hold"
+            return
+        }
+
+        InCallServiceImpl.instance?.holdCall(active)
+        dialpadMode = DialpadMode.NEW_CALL
+        dialpadText = ""
+        showDialpad = true
+        recordMessage = "First call on hold"
+    }
+
+    private fun sendDtmf(digit: Char) {
+        val target = InCallServiceImpl.currentCall ?: call ?: return
+        if (target.state != Call.STATE_ACTIVE) return
+        try {
+            target.playDtmfTone(digit)
+            handler.postDelayed({
+                try { target.stopDtmfTone() } catch (_: Exception) { }
+            }, 180L)
+            if (dialpadMode == DialpadMode.DTMF) {
+                dialpadText = (dialpadText + digit).takeLast(24)
+            }
+        } catch (_: Exception) { }
+    }
+
+    private fun placeNewCall(number: String) {
+        val target = number.filter { it.isDigit() || it == '+' || it == '*' || it == '#' }
+        if (target.isBlank()) {
+            recordMessage = "Enter a phone number"
+            return
+        }
+        if (checkSelfPermission(Manifest.permission.CALL_PHONE) != PackageManager.PERMISSION_GRANTED) {
+            recordMessage = "Phone permission is required"
+            return
+        }
+
+        try {
+            val telecom = getSystemService(TelecomManager::class.java)
+            val accounts = if (
+                checkSelfPermission(Manifest.permission.READ_PHONE_STATE) == PackageManager.PERMISSION_GRANTED &&
+                (android.os.Build.VERSION.SDK_INT < 31 ||
+                    checkSelfPermission(Manifest.permission.READ_PHONE_NUMBERS) == PackageManager.PERMISSION_GRANTED)
+            ) {
+                telecom.getCallCapablePhoneAccounts().filter { handle ->
+                    telecom.getPhoneAccount(handle)?.hasCapabilities(
+                        android.telecom.PhoneAccount.CAPABILITY_SIM_SUBSCRIPTION
+                    ) == true
+                }
+            } else emptyList()
+
+            val selected = telecom.getDefaultOutgoingPhoneAccount("tel")
+                ?.takeIf { account -> accounts.isEmpty() || accounts.contains(account) }
+                ?: accounts.firstOrNull()
+
+            val extras = Bundle().apply {
+                if (selected != null) putParcelable(TelecomManager.EXTRA_PHONE_ACCOUNT_HANDLE, selected)
+            }
+
+            telecom.placeCall(Uri.fromParts("tel", target, null), extras)
+            dialpadMode = DialpadMode.DTMF
+            dialpadText = ""
+            recordMessage = "Calling $target…"
+            showDialpad = false
+        } catch (_: SecurityException) {
+            recordMessage = "Phone permission denied"
+        } catch (_: Exception) {
+            recordMessage = "Unable to start new call"
+        }
     }
 
     private fun toggleRecording() {
@@ -229,13 +324,23 @@ private fun CallScreen(
     speaker: Boolean,
     recording: Boolean,
     recordMessage: String,
+    showDialpad: Boolean,
+    dialpadMode: DialpadMode,
+    dialpadText: String,
     onAnswer: () -> Unit,
     onIgnore: () -> Unit,
     onReject: () -> Unit,
     onMute: () -> Unit,
     onSpeaker: () -> Unit,
     onRecord: () -> Unit,
-    onEnd: () -> Unit
+    onEnd: () -> Unit,
+    onToggleDialpad: () -> Unit,
+    onAddCall: () -> Unit,
+    onDtmfDigit: (Char) -> Unit,
+    onNewCallDigit: (Char) -> Unit,
+    onNewCallBackspace: () -> Unit,
+    onPlaceNewCall: () -> Unit,
+    onCloseDialpad: () -> Unit
 ) {
     val number = call?.details?.handle?.schemeSpecificPart ?: "Unknown number"
     val telecomName = call?.details?.contactDisplayName?.takeIf { it.isNotBlank() }
@@ -361,15 +466,35 @@ private fun CallScreen(
                         }
                     }
                 } else if (isActive) {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        OutlinedButton(onClick = onMute, modifier = Modifier.weight(1f).height(54.dp), shape = RoundedCornerShape(17.dp)) { Text(if (muted) "Unmute" else "Mute") }
-                        OutlinedButton(onClick = onSpeaker, modifier = Modifier.weight(1f).height(54.dp), shape = RoundedCornerShape(17.dp)) { Text(if (speaker) "Earpiece" else "Speaker") }
+                    if (!showDialpad) {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            OutlinedButton(onClick = onMute, modifier = Modifier.weight(1f).height(52.dp), shape = RoundedCornerShape(17.dp)) { Text(if (muted) "Unmute" else "Mute") }
+                            OutlinedButton(onClick = onSpeaker, modifier = Modifier.weight(1f).height(52.dp), shape = RoundedCornerShape(17.dp)) { Text(if (speaker) "Earpiece" else "Speaker") }
+                            OutlinedButton(onClick = onToggleDialpad, modifier = Modifier.weight(1f).height(52.dp), shape = RoundedCornerShape(17.dp)) { Text("Keypad") }
+                        }
+                        Spacer(Modifier.height(10.dp))
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            OutlinedButton(onClick = onAddCall, modifier = Modifier.weight(1f).height(52.dp), shape = RoundedCornerShape(17.dp)) { Text("New call") }
+                            OutlinedButton(onClick = onRecord, modifier = Modifier.weight(1f).height(52.dp), shape = RoundedCornerShape(17.dp)) {
+                                Text(if (recording) "■ Recording" else "● Record call", fontWeight = FontWeight.Bold, color = if (recording) Red else Blue)
+                            }
+                        }
+                    } else {
+                        InCallDialpad(
+                            mode = dialpadMode,
+                            text = dialpadText,
+                            onDigit = if (dialpadMode == DialpadMode.DTMF) onDtmfDigit else onNewCallDigit,
+                            onBackspace = onNewCallBackspace,
+                            onCall = onPlaceNewCall,
+                            onClose = onCloseDialpad
+                        )
                     }
                     Spacer(Modifier.height(12.dp))
-                    OutlinedButton(onClick = onRecord, modifier = Modifier.fillMaxWidth().height(54.dp), shape = RoundedCornerShape(17.dp)) {
-                        Text(if (recording) "■ Stop recording" else "● Record call", fontWeight = FontWeight.Bold, color = if (recording) Red else Blue)
-                    }
-                    Spacer(Modifier.height(20.dp))
+                    MultiCallControls(
+                        modifier = Modifier.fillMaxWidth(),
+                        onAddCall = onAddCall
+                    )
+                    Spacer(Modifier.height(12.dp))
                     Button(onClick = onEnd, modifier = Modifier.fillMaxWidth().height(58.dp), shape = RoundedCornerShape(20.dp), colors = ButtonDefaults.buttonColors(containerColor = Red)) {
                         Text("End call", fontWeight = FontWeight.ExtraBold)
                     }
@@ -377,6 +502,97 @@ private fun CallScreen(
                     OutlinedButton(onClick = onEnd, modifier = Modifier.height(52.dp), shape = RoundedCornerShape(17.dp)) { Text("Cancel") }
                 }
             }
+        }
+    }
+}
+
+
+private enum class DialpadMode { DTMF, NEW_CALL }
+
+@androidx.compose.runtime.Composable
+private fun InCallDialpad(
+    mode: DialpadMode,
+    text: String,
+    onDigit: (Char) -> Unit,
+    onBackspace: () -> Unit,
+    onCall: () -> Unit,
+    onClose: () -> Unit
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                if (mode == DialpadMode.NEW_CALL) "New call" else "Dial pad",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = Blue
+            )
+            OutlinedButton(onClick = onClose, shape = RoundedCornerShape(14.dp)) { Text("Close") }
+        }
+
+        Surface(
+            modifier = Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 8.dp),
+            shape = RoundedCornerShape(16.dp),
+            color = Color(0xFFF5F8FC)
+        ) {
+            Text(
+                text.ifBlank { if (mode == DialpadMode.NEW_CALL) "Enter number" else "DTMF ready" },
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 12.dp),
+                textAlign = TextAlign.Center,
+                style = MaterialTheme.typography.titleLarge,
+                color = Color(0xFF27313B),
+                fontWeight = FontWeight.SemiBold
+            )
+        }
+
+        val rows = listOf(
+            listOf('1', '2', '3'),
+            listOf('4', '5', '6'),
+            listOf('7', '8', '9'),
+            listOf('*', '0', '#')
+        )
+        rows.forEach { row ->
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                row.forEach { digit ->
+                    OutlinedButton(
+                        onClick = { onDigit(digit) },
+                        modifier = Modifier.weight(1f).height(50.dp),
+                        shape = RoundedCornerShape(16.dp)
+                    ) {
+                        Text(digit.toString(), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+        }
+
+        if (mode == DialpadMode.NEW_CALL) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedButton(
+                    onClick = onBackspace,
+                    modifier = Modifier.weight(1f).height(50.dp),
+                    shape = RoundedCornerShape(16.dp)
+                ) { Text("⌫") }
+                Button(
+                    onClick = onCall,
+                    modifier = Modifier.weight(2f).height(50.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Green)
+                ) { Text("Call", fontWeight = FontWeight.ExtraBold) }
+            }
+        } else {
+            Text(
+                "Tap a key to send tones to the connected call",
+                style = MaterialTheme.typography.labelMedium,
+                color = Color(0xFF687684),
+                textAlign = TextAlign.Center
+            )
         }
     }
 }
