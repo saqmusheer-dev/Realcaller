@@ -149,44 +149,94 @@ fun SmartDashboardHome(
     onSettings: () -> Unit,
     onProfile: () -> Unit
 ) {
+    var section by remember { mutableStateOf(0) }
+
     Column(
-        Modifier.fillMaxSize().verticalScroll(androidx.compose.foundation.rememberScrollState())
-            .padding(horizontal = 20.dp, vertical = 8.dp)
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 8.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text("Smart", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold, color = HubBlue)
-                Text("Your communication hub", color = HubMuted)
+                Text("Your private communication hub", color = HubMuted)
             }
             TextButton(onClick = onProfile) { Text("Profile", color = HubBlue) }
         }
-        Spacer(Modifier.height(16.dp))
-        Card(
+
+        Spacer(Modifier.height(14.dp))
+
+        Surface(
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(24.dp),
-            colors = CardDefaults.cardColors(containerColor = Color.White)
+            shape = RoundedCornerShape(18.dp),
+            color = Color.White,
+            shadowElevation = 1.dp
         ) {
-            Column(Modifier.padding(18.dp)) {
-                Text("Stay connected", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold)
-                Spacer(Modifier.height(5.dp))
-                Text("Calls, messages, status and SmartCaller settings in one place.", color = HubMuted)
-                Spacer(Modifier.height(16.dp))
-                SmartDashboardTile("☎", "Calls", "Recent calls, contacts and keypad", HubBlue, onPhone)
-                SmartDashboardTile("✉", "Messages", "Chat and SmartCaller voice calls", HubGreen, onMessages)
-                SmartDashboardTile("◉", "Status", "Availability and 24-hour updates", Color(0xFF7A5AF8), onStatus)
-                SmartDashboardTile("⚙", "Settings", "Caller ID, privacy, calling and more", Color(0xFF52606D), onSettings)
+            Row(Modifier.padding(5.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                listOf("Chats", "Calls", "Status").forEachIndexed { index, label ->
+                    val active = section == index
+                    Surface(
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(14.dp),
+                        color = if (active) HubBlue else Color.Transparent,
+                        onClick = { section = index }
+                    ) {
+                        Text(
+                            label,
+                            modifier = Modifier.padding(vertical = 10.dp),
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                            color = if (active) Color.White else HubMuted,
+                            fontWeight = if (active) FontWeight.Bold else FontWeight.SemiBold
+                        )
+                    }
+                }
             }
         }
+
         Spacer(Modifier.height(14.dp))
-        Text("Quick actions", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-        Spacer(Modifier.height(8.dp))
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = onPhone, modifier = Modifier.weight(1f)) { Text("Phone") }
-            OutlinedButton(onClick = onMessages, modifier = Modifier.weight(1f)) { Text("Message") }
+
+        when (section) {
+            0 -> {
+                Text("Messages", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold)
+                Text("Private chats with your SmartCaller contacts", color = HubMuted)
+                Spacer(Modifier.height(10.dp))
+                SmartDashboardTile("✉", "New message", "Start a SmartCaller-to-SmartCaller chat", HubGreen, onMessages)
+                SmartDashboardTile("💬", "Recent conversations", "Your chats, photos, files and voice messages", HubBlue, onMessages)
+                Spacer(Modifier.height(10.dp))
+                Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp)) {
+                    Column(Modifier.padding(18.dp)) {
+                        Text("No conversations yet", fontWeight = FontWeight.Bold)
+                        Spacer(Modifier.height(4.dp))
+                        Text("Your SmartCaller chats will appear here.", color = HubMuted)
+                    }
+                }
+            }
+            1 -> {
+                Text("SmartCaller calls", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold)
+                Text("App-to-app audio and video calls — separate from SIM calls", color = HubMuted)
+                Spacer(Modifier.height(10.dp))
+                SmartDashboardTile("☎", "New app call", "Call another SmartCaller user over the internet", HubBlue, onMessages)
+                SmartDashboardTile("◷", "Call history", "SmartCaller app calls will be listed here", HubGreen, onMessages)
+                Spacer(Modifier.height(10.dp))
+                Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp)) {
+                    Column(Modifier.padding(18.dp)) {
+                        Text("SmartCaller network", fontWeight = FontWeight.Bold)
+                        Spacer(Modifier.height(4.dp))
+                        Text("These calls are part of the Smart communication network. SIM/cellular calls stay in the Phone section.", color = HubMuted)
+                    }
+                }
+            }
+            else -> {
+                Text("Your status", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold)
+                Text("Let your SmartCaller contacts know when you're available", color = HubMuted)
+                Spacer(Modifier.height(10.dp))
+                SmartDashboardTile("◉", "Availability", "Available, Busy, Do not disturb or custom", Color(0xFF7A5AF8), onStatus)
+                SmartDashboardTile("◌", "24-hour updates", "Photo, video or text status updates", Color(0xFF7A5AF8), onStatus)
+            }
         }
+
+        Spacer(Modifier.height(16.dp))
+        SmartDashboardTile("⚙", "Smart settings", "Privacy, notifications, profile and communication settings", Color(0xFF52606D), onSettings)
     }
 }
-
 @Composable
 private fun SmartDashboardTile(
     icon: String,
