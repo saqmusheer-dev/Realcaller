@@ -69,6 +69,10 @@ class CallActivity : ComponentActivity() {
     private var speaker by mutableStateOf(false)
     private var recording by mutableStateOf(false)
     private var recordMessage by mutableStateOf("")
+    private var showDialpad by mutableStateOf(false)
+    private var dialpadMode by mutableStateOf(DialpadMode.DTMF)
+    private var dialpadText by mutableStateOf("")
+    private var heldByUser by mutableStateOf(false)
     private var resolvedName by mutableStateOf<String?>(null)
     private var callerRecord by mutableStateOf<CallerRecord?>(null)
     private var lastLookupNumber = ""
