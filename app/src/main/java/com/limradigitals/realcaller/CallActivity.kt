@@ -25,6 +25,8 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -120,6 +122,7 @@ class CallActivity : ComponentActivity() {
                     dialpadMode = dialpadMode,
                     dialpadText = dialpadText,
                     onAnswer = { call?.answer(VideoProfile.STATE_AUDIO_ONLY) },
+                    onResume = { call?.let { InCallServiceImpl.instance?.unholdCall(it) }; heldByUser = false },
                     onIgnore = {
                         // Ignore means silence the ringtone but keep the call ringing.
                         InCallServiceImpl.instance?.silenceRinger()
@@ -164,6 +167,16 @@ class CallActivity : ComponentActivity() {
         return super.onKeyDown(keyCode, event)
     }
 
+    private fun holdCurrentCall() {
+        val active = InCallServiceImpl.instance?.getManagedCalls()?.firstOrNull { it.state == Call.STATE_ACTIVE } ?: call?.takeIf { it.state == Call.STATE_ACTIVE }
+        if (active == null) { recordMessage = "No active call to hold"; return }
+        val canHold = (active.details.callCapabilities and Call.Details.CAPABILITY_HOLD) != 0
+        if (!canHold) { recordMessage = "This call cannot be put on hold"; return }
+        InCallServiceImpl.instance?.holdCall(active)
+        heldByUser = true
+        recordMessage = "Call on hold"
+    }
+
     private fun prepareNewCall() {
         val active = InCallServiceImpl.instance?.getManagedCalls()
             ?.firstOrNull { it.state == Call.STATE_ACTIVE }
@@ -183,6 +196,7 @@ class CallActivity : ComponentActivity() {
         }
 
         InCallServiceImpl.instance?.holdCall(active)
+        heldByUser = true
         dialpadMode = DialpadMode.NEW_CALL
         dialpadText = ""
         showDialpad = true
@@ -328,6 +342,7 @@ private fun CallScreen(
     dialpadMode: DialpadMode,
     dialpadText: String,
     onAnswer: () -> Unit,
+    onResume: () -> Unit,
     onIgnore: () -> Unit,
     onReject: () -> Unit,
     onMute: () -> Unit,
@@ -363,7 +378,7 @@ private fun CallScreen(
     }.uppercase()
 
     Column(
-        modifier = Modifier.fillMaxSize().background(Bg).padding(horizontal = 16.dp, vertical = 18.dp),
+        modifier = Modifier.fillMaxSize().background(Bg).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 18.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
@@ -467,10 +482,15 @@ private fun CallScreen(
                     }
                 } else if (isActive) {
                     if (!showDialpad) {
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             OutlinedButton(onClick = onMute, modifier = Modifier.weight(1f).height(52.dp), shape = RoundedCornerShape(17.dp)) { Text(if (muted) "Unmute" else "Mute") }
                             OutlinedButton(onClick = onSpeaker, modifier = Modifier.weight(1f).height(52.dp), shape = RoundedCornerShape(17.dp)) { Text(if (speaker) "Earpiece" else "Speaker") }
                             OutlinedButton(onClick = onToggleDialpad, modifier = Modifier.weight(1f).height(52.dp), shape = RoundedCornerShape(17.dp)) { Text("Keypad") }
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedButton(onClick = { holdCurrentCall() }, modifier = Modifier.weight(1f).height(50.dp), shape = RoundedCornerShape(16.dp)) { Text("Hold") }
+                            OutlinedButton(onClick = onAddCall, modifier = Modifier.weight(1f).height(50.dp), shape = RoundedCornerShape(16.dp)) { Text("New call") }
                         }
                         Spacer(Modifier.height(10.dp))
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -498,6 +518,22 @@ private fun CallScreen(
                     Button(onClick = onEnd, modifier = Modifier.fillMaxWidth().height(58.dp), shape = RoundedCornerShape(20.dp), colors = ButtonDefaults.buttonColors(containerColor = Red)) {
                         Text("End call", fontWeight = FontWeight.ExtraBold)
                     }
+                } else if (state == Call.STATE_HOLDING) {
+                    Text("Call on hold", color = Blue, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.height(14.dp))
+                    Button(
+                        onClick = onResume,
+                        modifier = Modifier.fillMaxWidth().height(56.dp),
+                        shape = RoundedCornerShape(18.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Blue)
+                    ) { Text("Resume call", fontWeight = FontWeight.ExtraBold) }
+                    Spacer(Modifier.height(12.dp))
+                    Button(
+                        onClick = onEnd,
+                        modifier = Modifier.fillMaxWidth().height(56.dp),
+                        shape = RoundedCornerShape(18.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Red)
+                    ) { Text("End call", fontWeight = FontWeight.ExtraBold) }
                 } else {
                     OutlinedButton(onClick = onEnd, modifier = Modifier.height(52.dp), shape = RoundedCornerShape(17.dp)) { Text("Cancel") }
                 }
