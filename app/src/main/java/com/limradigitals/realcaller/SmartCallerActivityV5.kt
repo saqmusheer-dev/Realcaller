@@ -188,8 +188,6 @@ private fun SmartCallerHomeV5(phone: String, onPhoneChange: (String) -> Unit, on
             "com.phonepe.app",
             "net.one97.paytm",
             "in.org.npci.upiapp",
-            "com.amazon.mShop.android.shopping",
-            "com.whatsapp"
         ).mapNotNull { packageName ->
             try {
                 val launchIntent = homeContext.packageManager.getLaunchIntentForPackage(packageName)
