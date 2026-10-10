@@ -247,7 +247,12 @@ private fun SmartCallerHomeV5(phone: String, onPhoneChange: (String) -> Unit, on
                         homeContext.startActivity(Intent.createChooser(send, "Share number"))
                     }) { Text("Share") }
                     TextButton(onClick = {
-                        val digits = target.second.filter { it.isDigit() }
+                        val rawDigits = target.second.filter { it.isDigit() }
+                        val digits = when {
+                            rawDigits.length == 10 -> "91$rawDigits"
+                            rawDigits.length == 11 && rawDigits.startsWith("0") -> "91${rawDigits.drop(1)}"
+                            else -> rawDigits
+                        }
                         if (digits.isNotBlank()) {
                             try { homeContext.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://wa.me/$digits"))) }
                             catch (_: Exception) { android.widget.Toast.makeText(homeContext, "Unable to open WhatsApp", android.widget.Toast.LENGTH_SHORT).show() }
