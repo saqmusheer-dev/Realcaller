@@ -176,12 +176,30 @@ private fun initials(name: String?): String { if (name.isNullOrBlank()) return "
 
 @Composable
 private fun SmartCallerHomeV5(phone: String, onPhoneChange: (String) -> Unit, onDigit: (String) -> Unit, onBackspace: () -> Unit, onCall: () -> Unit, onCallNumber: (String) -> Unit, onDeleteCaller: (String) -> Int, status: String, isDefault: Boolean, hasActiveCall: Boolean, onReturnToCall: () -> Unit, calls: List<V5CallItem>, contacts: List<V5ContactItem>) {
-    var tab by remember { mutableStateOf(0) }; var hubTab by remember { mutableStateOf(0) }; var filter by remember { mutableStateOf("All") }; var search by remember { mutableStateOf("") }; var selectedGroup by remember { mutableStateOf<V5CallGroup?>(null) }; var deleteTarget by remember { mutableStateOf<V5CallGroup?>(null) }; var selectedCallerKeys by remember { mutableStateOf<Set<String>>(emptySet()) }; var bulkDeleteConfirm by remember { mutableStateOf(false) }; var actionTarget by remember { mutableStateOf<Pair<String, String>?>(null) }; var actionHistoryGroup by remember { mutableStateOf<V5CallGroup?>(null) }; var actionContact by remember { mutableStateOf<V5ContactItem?>(null) }
+    var tab by remember { mutableStateOf(0) }; var hubTab by remember { mutableStateOf(0) }; var filter by remember { mutableStateOf("All") }; var search by remember { mutableStateOf("") }; var selectedGroup by remember { mutableStateOf<V5CallGroup?>(null) }; var deleteTarget by remember { mutableStateOf<V5CallGroup?>(null) }; var selectedCallerKeys by remember { mutableStateOf<Set<String>>(emptySet()) }; var bulkDeleteConfirm by remember { mutableStateOf(false) }; var actionTarget by remember { mutableStateOf<Pair<String, String>?>(null) }; var actionHistoryGroup by remember { mutableStateOf<V5CallGroup?>(null) }; var actionContact by remember { mutableStateOf<V5ContactItem?>(null) }; var showUpiApps by remember { mutableStateOf(false) }
     val groups = calls.filter { filter == "All" || it.type == filter }.groupBy { normalizedKey(it.number) }.map { (key, list) -> V5CallGroup(key, list.first().number, list.firstOrNull { !it.name.isNullOrBlank() }?.name, list.sortedByDescending { it.timestamp }, list.any { it.verified }) }.sortedByDescending { it.latest.timestamp }
     val filteredGroups = groups.filter { search.isBlank() || (it.name?.contains(search, true) == true) || it.number.contains(search) }
     val filteredContacts = contacts.filter { search.isBlank() || it.name.contains(search, true) || it.number.contains(search) }
 
     val homeContext = androidx.compose.ui.platform.LocalContext.current
+    val supportedUpiApps = remember(homeContext) {
+        listOf(
+            "com.google.android.apps.nbu.paisa.user",
+            "com.phonepe.app",
+            "net.one97.paytm",
+            "in.org.npci.upiapp",
+            "com.amazon.mShop.android.shopping",
+            "com.whatsapp"
+        ).mapNotNull { packageName ->
+            try {
+                val launchIntent = homeContext.packageManager.getLaunchIntentForPackage(packageName)
+                if (launchIntent != null) {
+                    val appInfo = homeContext.packageManager.getApplicationInfo(packageName, 0)
+                    Triple(packageName, homeContext.packageManager.getApplicationLabel(appInfo).toString(), launchIntent)
+                } else null
+            } catch (_: Exception) { null }
+        }.distinctBy { it.first }.sortedBy { it.second.lowercase() }
+    }
     Scaffold(bottomBar = { NavigationBar(containerColor = Color.White) {
         NavigationBarItem(selected = hubTab == 0 && tab == 0, onClick = { hubTab = 0; tab = 0 }, icon = { Text("◷") }, label = { Text("Recents") })
         NavigationBarItem(selected = hubTab == 0 && tab == 1, onClick = { hubTab = 0; tab = 1 }, icon = { Text("◎") }, label = { Text("Contacts") })
@@ -314,6 +332,15 @@ private fun SmartCallerHomeV5(phone: String, onPhoneChange: (String) -> Unit, on
                         item {
                             TextButton(
                                 onClick = {
+                                    actionTarget = null; actionHistoryGroup = null; actionContact = null
+                                    showUpiApps = true
+                                },
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)
+                            ) { Text("Pay via UPI", modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Start, color = SCBlue, fontWeight = FontWeight.Bold) }
+                        }
+                        item {
+                            TextButton(
+                                onClick = {
                                     onCallNumber(target.second)
                                     actionTarget = null; actionHistoryGroup = null; actionContact = null
                                 },
@@ -353,6 +380,32 @@ private fun SmartCallerHomeV5(phone: String, onPhoneChange: (String) -> Unit, on
                 }
             }
         }
+    }
+    if (showUpiApps) {
+        AlertDialog(
+            onDismissRequest = { showUpiApps = false },
+            title = { Text("Pay via UPI") },
+            text = {
+                if (supportedUpiApps.isEmpty()) {
+                    Text("No supported payment apps were found. Install Google Pay, PhonePe, Paytm or BHIM and try again.")
+                } else {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("Choose a payment app. Select the recipient inside that app.", color = SCMuted, style = MaterialTheme.typography.bodySmall)
+                        supportedUpiApps.forEach { (packageName, label, launchIntent) ->
+                            TextButton(
+                                onClick = {
+                                    showUpiApps = false
+                                    try { homeContext.startActivity(launchIntent) }
+                                    catch (_: Exception) { android.widget.Toast.makeText(homeContext, "Unable to open " + label, android.widget.Toast.LENGTH_SHORT).show() }
+                                },
+                                modifier = Modifier.fillMaxWidth()
+                            ) { Text(label, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Start, color = SCText) }
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { showUpiApps = false }) { Text("Close", color = SCBlue) } }
+        )
     }
     deleteTarget?.let { group ->
         AlertDialog(
