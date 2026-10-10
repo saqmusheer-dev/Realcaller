@@ -5,8 +5,6 @@
         <package android:name="com.phonepe.app" />
         <package android:name="net.one97.paytm" />
         <package android:name="in.org.npci.upiapp" />
-        <package android:name="com.amazon.mShop.android.shopping" />
-        <package android:name="com.whatsapp" />
     </queries>
 
     <uses-permission android:name="android.permission.CALL_PHONE" />
