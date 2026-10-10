@@ -210,7 +210,7 @@ private fun SmartCallerHomeV5(phone: String, onPhoneChange: (String) -> Unit, on
             }
             when (hubTab) {
                 0 -> when (tab) {
-                    0 -> RecentsViewV5(filteredGroups, search, { search = it }, phone, onPhoneChange, { onCallNumber(phone) }, filter, { filter = it }, selectedCallerKeys, { key -> selectedCallerKeys = if (key in selectedCallerKeys) selectedCallerKeys - key else selectedCallerKeys + key }, { selectedGroup = it }, { deleteTarget = it }, { bulkDeleteConfirm = true }, { selectedCallerKeys = emptySet() }, onCallNumber, { group -> actionHistoryGroup = group; actionContact = null; actionTarget = (group.name ?: "Unknown caller") to group.number })
+                    0 -> RecentsViewV5(filteredGroups, search, { search = it }, phone, onPhoneChange, { onCallNumber(phone) }, filter, { filter = it }, selectedCallerKeys, { key -> selectedCallerKeys = if (key in selectedCallerKeys) selectedCallerKeys - key else selectedCallerKeys + key }, { selectedGroup = it }, { deleteTarget = it }, { bulkDeleteConfirm = true }, { selectedCallerKeys = emptySet() }, onCallNumber, { hubTab = 1 }, { group -> actionHistoryGroup = group; actionContact = null; actionTarget = (group.name ?: "Unknown caller") to group.number })
                     1 -> ContactsViewV5(filteredContacts, search, { search = it }, onCallNumber, { contact -> actionContact = contact; actionHistoryGroup = null; actionTarget = contact.name to contact.number })
                     else -> KeypadViewV5(phone, onPhoneChange, onDigit, onBackspace, onCall, status)
                 }
@@ -228,51 +228,131 @@ private fun SmartCallerHomeV5(phone: String, onPhoneChange: (String) -> Unit, on
     }
     selectedGroup?.let { HistoryDialogV5(it, onCallNumber, { onDeleteCaller(it.number); selectedGroup = null }, { selectedGroup = null }) }
     actionTarget?.let { target ->
-        AlertDialog(
-            onDismissRequest = { actionTarget = null; actionHistoryGroup = null; actionContact = null },
-            title = { Text(target.first, fontWeight = FontWeight.ExtraBold) },
-            text = { Text(target.second) },
-            confirmButton = {
-                TextButton(onClick = {
-                    val clipboard = homeContext.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                    clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Phone number", target.second))
-                    android.widget.Toast.makeText(homeContext, "Number copied", android.widget.Toast.LENGTH_SHORT).show()
-                    actionTarget = null; actionHistoryGroup = null; actionContact = null
-                }) { Text("Copy number") }
-            },
-            dismissButton = {
-                Column(horizontalAlignment = Alignment.End) {
-                    TextButton(onClick = {
-                        val send = Intent(Intent.ACTION_SEND).apply { type = "text/plain"; putExtra(Intent.EXTRA_TEXT, "${target.first}: ${target.second}") }
-                        homeContext.startActivity(Intent.createChooser(send, "Share number"))
-                    }) { Text("Share") }
-                    TextButton(onClick = {
-                        val rawDigits = target.second.filter { it.isDigit() }
-                        val digits = when {
-                            rawDigits.length == 10 -> "91$rawDigits"
-                            rawDigits.length == 11 && rawDigits.startsWith("0") -> "91${rawDigits.drop(1)}"
-                            else -> rawDigits
+        androidx.compose.ui.window.Dialog(onDismissRequest = {
+            actionTarget = null; actionHistoryGroup = null; actionContact = null
+        }) {
+            Surface(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                shape = RoundedCornerShape(24.dp),
+                color = Color(0xFFF9F7FC),
+                shadowElevation = 8.dp
+            ) {
+                Column(Modifier.padding(vertical = 12.dp)) {
+                    Text(
+                        target.first,
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = SCText
+                    )
+                    Text(
+                        target.second,
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 2.dp),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = SCMuted
+                    )
+                    HorizontalDivider(Modifier.padding(top = 10.dp), color = Color(0xFFE2E0E7))
+                    LazyColumn(
+                        modifier = Modifier.heightIn(max = 430.dp),
+                        contentPadding = PaddingValues(vertical = 4.dp)
+                    ) {
+                        item {
+                            TextButton(
+                                onClick = {
+                                    actionContact?.let { contact ->
+                                        try {
+                                            val uri = Uri.withAppendedPath(ContactsContract.Contacts.CONTENT_URI, contact.id)
+                                            homeContext.startActivity(Intent(Intent.ACTION_VIEW, uri))
+                                        } catch (_: Exception) {
+                                            android.widget.Toast.makeText(homeContext, "Unable to open contact details", android.widget.Toast.LENGTH_SHORT).show()
+                                        }
+                                    } ?: actionHistoryGroup?.let { selectedGroup = it }
+                                    actionTarget = null; actionHistoryGroup = null; actionContact = null
+                                },
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)
+                            ) { Text("Details", modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Start, color = SCText) }
                         }
-                        if (digits.isNotBlank()) {
-                            try { homeContext.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://wa.me/$digits"))) }
-                            catch (_: Exception) { android.widget.Toast.makeText(homeContext, "Unable to open WhatsApp", android.widget.Toast.LENGTH_SHORT).show() }
+                        item {
+                            TextButton(
+                                onClick = {
+                                    val clipboard = homeContext.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                                    clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Phone number", target.second))
+                                    android.widget.Toast.makeText(homeContext, "Number copied", android.widget.Toast.LENGTH_SHORT).show()
+                                    actionTarget = null; actionHistoryGroup = null; actionContact = null
+                                },
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)
+                            ) { Text("Copy number", modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Start, color = SCText) }
                         }
-                    }) { Text("WhatsApp") }
-                    TextButton(onClick = { onCallNumber(target.second); actionTarget = null; actionHistoryGroup = null; actionContact = null }) { Text("Call", color = SCGreen, fontWeight = FontWeight.Bold) }
-                    TextButton(onClick = {
-                        actionContact?.let { contact ->
-                            try {
-                                val uri = Uri.withAppendedPath(ContactsContract.Contacts.CONTENT_URI, contact.id)
-                                homeContext.startActivity(Intent(Intent.ACTION_DELETE, uri))
-                            } catch (_: Exception) { android.widget.Toast.makeText(homeContext, "Open Contacts to delete this contact", android.widget.Toast.LENGTH_SHORT).show() }
-                        } ?: actionHistoryGroup?.let { deleteTarget = it }
-                        actionTarget = null; actionHistoryGroup = null; actionContact = null
-                    }) { Text(if (actionContact != null) "Delete contact" else "Delete call history", color = SCRed) }
-                    TextButton(onClick = { hubTab = 1; actionTarget = null; actionHistoryGroup = null; actionContact = null }) { Text("Smart Hub messages") }
-                    TextButton(onClick = { actionTarget = null; actionHistoryGroup = null; actionContact = null }) { Text("Close") }
+                        item {
+                            TextButton(
+                                onClick = {
+                                    val send = Intent(Intent.ACTION_SEND).apply { type = "text/plain"; putExtra(Intent.EXTRA_TEXT, "${target.first}: ${target.second}") }
+                                    homeContext.startActivity(Intent.createChooser(send, "Share number"))
+                                    actionTarget = null; actionHistoryGroup = null; actionContact = null
+                                },
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)
+                            ) { Text("Share", modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Start, color = SCText) }
+                        }
+                        item {
+                            TextButton(
+                                onClick = {
+                                    val rawDigits = target.second.filter { it.isDigit() }
+                                    val digits = when {
+                                        rawDigits.length == 10 -> "91$rawDigits"
+                                        rawDigits.length == 11 && rawDigits.startsWith("0") -> "91${rawDigits.drop(1)}"
+                                        else -> rawDigits
+                                    }
+                                    if (digits.isNotBlank()) {
+                                        try { homeContext.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://wa.me/$digits"))) }
+                                        catch (_: Exception) { android.widget.Toast.makeText(homeContext, "Unable to open WhatsApp", android.widget.Toast.LENGTH_SHORT).show() }
+                                    }
+                                    actionTarget = null; actionHistoryGroup = null; actionContact = null
+                                },
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)
+                            ) { Text("WhatsApp", modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Start, color = SCText) }
+                        }
+                        item {
+                            TextButton(
+                                onClick = {
+                                    onCallNumber(target.second)
+                                    actionTarget = null; actionHistoryGroup = null; actionContact = null
+                                },
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)
+                            ) { Text("Call", modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Start, color = SCGreen, fontWeight = FontWeight.Bold) }
+                        }
+                        item {
+                            TextButton(
+                                onClick = {
+                                    actionContact?.let { contact ->
+                                        try {
+                                            val uri = Uri.withAppendedPath(ContactsContract.Contacts.CONTENT_URI, contact.id)
+                                            homeContext.startActivity(Intent(Intent.ACTION_DELETE, uri))
+                                        } catch (_: Exception) {
+                                            android.widget.Toast.makeText(homeContext, "Open Contacts to delete this contact", android.widget.Toast.LENGTH_SHORT).show()
+                                        }
+                                    } ?: actionHistoryGroup?.let { deleteTarget = it }
+                                    actionTarget = null; actionHistoryGroup = null; actionContact = null
+                                },
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)
+                            ) { Text(if (actionContact != null) "Delete contact" else "Delete call history", modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Start, color = SCRed) }
+                        }
+                        item {
+                            TextButton(
+                                onClick = {
+                                    hubTab = 1
+                                    actionTarget = null; actionHistoryGroup = null; actionContact = null
+                                },
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)
+                            ) { Text("Smart Hub messages", modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Start, color = SCBlue) }
+                        }
+                    }
+                    TextButton(
+                        onClick = { actionTarget = null; actionHistoryGroup = null; actionContact = null },
+                        modifier = Modifier.align(Alignment.End).padding(horizontal = 12.dp)
+                    ) { Text("Close", color = SCMuted) }
                 }
             }
-        )
+        }
     }
     deleteTarget?.let { group ->
         AlertDialog(
@@ -366,7 +446,8 @@ private fun RecentsViewV5(
     onBulkDelete: () -> Unit,
     onClearSelection: () -> Unit,
     onCallNumber: (String) -> Unit,
-    onSmartActions: (V5CallGroup) -> Unit
+    onSmartActions: (V5CallGroup) -> Unit,
+    onMoreActions: (V5CallGroup) -> Unit
 ) {
     val selectionMode = selectedKeys.isNotEmpty()
     Column(Modifier.fillMaxSize()) {
@@ -410,6 +491,7 @@ private fun RecentsViewV5(
                     onOpen = { if (selectionMode) onToggleSelection(group.key) else onOpen(group) },
                     onLongPress = { onToggleSelection(group.key) },
                     onSmartActions = { onSmartActions(group) },
+                    onMoreActions = { onMoreActions(group) },
                     onCall = { onCallNumber(group.number) }
                 )
             }
@@ -423,7 +505,7 @@ private fun ContactsViewV5(contacts: List<V5ContactItem>, search: String, onSear
         SearchBoxV5(search, onSearch, "Search contacts")
         LazyColumn(contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
             item { Text("Contacts", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold) }
-            items(contacts, key = { it.id + normalizedKey(it.number) }) { contact -> ContactCardV5(contact, { onActions(contact) }, { onCall(contact.number) }) }
+            items(contacts, key = { it.id + normalizedKey(it.number) }) { contact -> ContactCardV5(contact, { onActions(contact) }, { onCall(contact.number) }, { onActions(contact) }) }
             if (contacts.isEmpty()) item { EmptyStateV5("No contacts found") }
         }
     }
@@ -451,6 +533,7 @@ private fun CallCardV5(
     onOpen: () -> Unit,
     onLongPress: () -> Unit,
     onSmartActions: () -> Unit,
+    onMoreActions: () -> Unit,
     onCall: () -> Unit
 ) {
     val color = if (group.latest.type == "Missed") SCRed else if (group.latest.type == "Dialled") SCBlue else SCGreen
@@ -494,18 +577,20 @@ private fun CallCardV5(
                 Row(horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.CenterVertically) {
                     IconButton(onClick = onSmartActions) { Text("✦", color = SCBlue, fontWeight = FontWeight.ExtraBold, style = MaterialTheme.typography.titleLarge) }
                     FilledIconButton(onClick = onCall, colors = IconButtonDefaults.filledIconButtonColors(containerColor = SCGreen, contentColor = Color.White)) { Text("☎") }
+                    IconButton(onClick = onMoreActions) { Text("⋮", color = SCMuted, fontWeight = FontWeight.ExtraBold, style = MaterialTheme.typography.titleLarge) }
                 }
             }
         }
     }
 }
 @Composable
-private fun ContactCardV5(contact: V5ContactItem, onSelect: () -> Unit, onCall: () -> Unit) {
+private fun ContactCardV5(contact: V5ContactItem, onSelect: () -> Unit, onCall: () -> Unit, onMoreActions: () -> Unit) {
     Card(Modifier.fillMaxWidth().clickable(onClick = onSelect), shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(Color.White), elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
         Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
             AvatarV5(contact.name); Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) { Text(contact.name, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium); Text(contact.number, color = SCMuted, style = MaterialTheme.typography.bodySmall); Text("Saved contact", color = SCGreen, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.labelSmall) }
             FilledIconButton(onClick = onCall, colors = IconButtonDefaults.filledIconButtonColors(containerColor = SCGreen, contentColor = Color.White)) { Text("☎") }
+            IconButton(onClick = onMoreActions) { Text("⋮", color = SCMuted, fontWeight = FontWeight.ExtraBold, style = MaterialTheme.typography.titleLarge) }
         }
     }
 }
