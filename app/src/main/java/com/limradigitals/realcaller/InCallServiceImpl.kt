@@ -273,10 +273,11 @@ class InCallServiceImpl : InCallService() {
 
     private fun showCallNotification(call: Call) {
         val handle = call.details.handle?.schemeSpecificPart.orEmpty()
-        val contactName = call.details.contactDisplayName?.takeIf { it.isNotBlank() && !it.equals(handle, ignoreCase = true) } ?: lookupContactName(handle)
+        val contactName = call.details.contactDisplayName?.trim()?.takeIf { it.isNotBlank() && !it.equals(handle, ignoreCase = true) && !isGenericCallerName(it) } ?: lookupContactName(handle)
         val record = if (handle.isNotBlank()) callerRepository.lookup(handle) else null
+        val reputationName = record?.displayName?.trim()?.takeIf { it.isNotBlank() && !isGenericCallerName(it) && !it.equals(handle, ignoreCase = true) }
         val isSpam = record?.level == ReputationLevel.SPAM || record?.level == ReputationLevel.SCAM
-        val displayName = contactName ?: record?.displayName ?: handle.ifBlank { "Unknown caller" }
+        val displayName = contactName ?: reputationName ?: handle.ifBlank { "Unknown caller" }
         val ringing = call.state == Call.STATE_RINGING
         val channel = if (ringing) INCOMING_CHANNEL_ID else ONGOING_CHANNEL_ID
         val intent = Intent(this, CallActivity::class.java).apply {
@@ -318,6 +319,10 @@ class InCallServiceImpl : InCallService() {
         }
         getSystemService(NotificationManager::class.java).notify(CALL_NOTIFICATION_ID, builder.build())
     }
+
+    private fun isGenericCallerName(value: String): Boolean = value.trim().lowercase() in setOf(
+        "unknown", "unknown caller", "private number", "private caller", "unavailable", "no caller id", "anonymous"
+    )
 
     private fun lookupContactName(number: String): String? {
         if (number.isBlank()) return null
