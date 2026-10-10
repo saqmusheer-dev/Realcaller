@@ -58,6 +58,7 @@ class SmartCallerActivityV5 : ComponentActivity() {
     private var phone by mutableStateOf("")
     private var status by mutableStateOf("Ready")
     private var isDefault by mutableStateOf(false)
+    private var hasActiveCall by mutableStateOf(false)
     private val callItems = mutableStateListOf<V5CallItem>()
     private val contacts = mutableStateListOf<V5ContactItem>()
 
@@ -70,12 +71,14 @@ class SmartCallerActivityV5 : ComponentActivity() {
         requestPermissionsIfNeeded(); loadCalls(); loadContacts(); render()
     }
 
-    override fun onResume() { super.onResume(); isDefault = defaultDialer(); loadCalls(); loadContacts() }
+    override fun onResume() { super.onResume(); isDefault = defaultDialer(); refreshActiveCall(); loadCalls(); loadContacts() }
+
+    private fun refreshActiveCall() { hasActiveCall = try { InCallServiceImpl.instance?.getManagedCalls()?.isNotEmpty() == true } catch (_: Exception) { false } }
 
     private fun render() {
         setContent {
             MaterialTheme(colorScheme = lightColorScheme(primary = SCBlue, secondary = SCGreen, background = SCBg, surface = Color.White, onBackground = SCText, onSurface = SCText)) {
-                SmartCallerHomeV5(phone, { phone = cleanNumber(it) }, { phone += it }, { if (phone.isNotEmpty()) phone = phone.dropLast(1) }, { placeCall(phone) }, { placeCall(it) }, { deleteCallerHistory(it) }, status, isDefault, callItems, contacts)
+                SmartCallerHomeV5(phone, { phone = cleanNumber(it) }, { phone += it }, { if (phone.isNotEmpty()) phone = phone.dropLast(1) }, { placeCall(phone) }, { placeCall(it) }, { deleteCallerHistory(it) }, status, isDefault, hasActiveCall, { startActivity(Intent(this, CallActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)) }, callItems, contacts)
             }
         }
     }
@@ -172,8 +175,8 @@ private fun normalizedKey(number: String): String { val d = number.filter { it.i
 private fun initials(name: String?): String { if (name.isNullOrBlank()) return "?"; val p = name.trim().split(Regex("\\s+")).filter { it.isNotBlank() }; return if (p.size > 1) "${p.first().first()}${p.last().first()}".uppercase() else p.first().take(1).uppercase() }
 
 @Composable
-private fun SmartCallerHomeV5(phone: String, onPhoneChange: (String) -> Unit, onDigit: (String) -> Unit, onBackspace: () -> Unit, onCall: () -> Unit, onCallNumber: (String) -> Unit, onDeleteCaller: (String) -> Int, status: String, isDefault: Boolean, calls: List<V5CallItem>, contacts: List<V5ContactItem>) {
-    var tab by remember { mutableStateOf(0) }; var hubTab by remember { mutableStateOf(0) }; var filter by remember { mutableStateOf("All") }; var search by remember { mutableStateOf("") }; var selectedGroup by remember { mutableStateOf<V5CallGroup?>(null) }; var deleteTarget by remember { mutableStateOf<V5CallGroup?>(null) }; var selectedCallerKeys by remember { mutableStateOf<Set<String>>(emptySet()) }; var bulkDeleteConfirm by remember { mutableStateOf(false) }
+private fun SmartCallerHomeV5(phone: String, onPhoneChange: (String) -> Unit, onDigit: (String) -> Unit, onBackspace: () -> Unit, onCall: () -> Unit, onCallNumber: (String) -> Unit, onDeleteCaller: (String) -> Int, status: String, isDefault: Boolean, hasActiveCall: Boolean, onReturnToCall: () -> Unit, calls: List<V5CallItem>, contacts: List<V5ContactItem>) {
+    var tab by remember { mutableStateOf(0) }; var hubTab by remember { mutableStateOf(0) }; var filter by remember { mutableStateOf("All") }; var search by remember { mutableStateOf("") }; var selectedGroup by remember { mutableStateOf<V5CallGroup?>(null) }; var deleteTarget by remember { mutableStateOf<V5CallGroup?>(null) }; var selectedCallerKeys by remember { mutableStateOf<Set<String>>(emptySet()) }; var bulkDeleteConfirm by remember { mutableStateOf(false) }; var actionTarget by remember { mutableStateOf<Pair<String, String>?>(null) }; var actionHistoryGroup by remember { mutableStateOf<V5CallGroup?>(null) }; var actionContact by remember { mutableStateOf<V5ContactItem?>(null) }
     val groups = calls.filter { filter == "All" || it.type == filter }.groupBy { normalizedKey(it.number) }.map { (key, list) -> V5CallGroup(key, list.first().number, list.firstOrNull { !it.name.isNullOrBlank() }?.name, list.sortedByDescending { it.timestamp }, list.any { it.verified }) }.sortedByDescending { it.latest.timestamp }
     val filteredGroups = groups.filter { search.isBlank() || (it.name?.contains(search, true) == true) || it.number.contains(search) }
     val filteredContacts = contacts.filter { search.isBlank() || it.name.contains(search, true) || it.number.contains(search) }
@@ -191,14 +194,24 @@ private fun SmartCallerHomeV5(phone: String, onPhoneChange: (String) -> Unit, on
                 IconButton(onClick = { homeContext.startActivity(Intent(homeContext, ProfileActivity::class.java)) }) { Text("ME", color = SCBlueDark, fontWeight = FontWeight.ExtraBold) }
                 Surface(shape = RoundedCornerShape(50), color = if (isDefault) Color(0xFFE4F7EF) else Color(0xFFFFF0E5)) { Text(if (isDefault) "● Ready" else "Setup", color = if (isDefault) SCGreen else Color(0xFFB7651B), fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp)) }
             }
+            if (hasActiveCall) {
+                Surface(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp), shape = RoundedCornerShape(16.dp), color = Color(0xFFE4F7EF)) {
+                    Row(Modifier.fillMaxWidth().clickable(onClick = onReturnToCall).padding(horizontal = 14.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text("●", color = SCGreen, fontWeight = FontWeight.ExtraBold)
+                        Spacer(Modifier.width(9.dp))
+                        Text("Call in progress", color = SCText, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                        Text("Return to call  ›", color = SCGreen, fontWeight = FontWeight.ExtraBold)
+                    }
+                }
+            }
             if (hubTab <= 2) {
                 SmartHubSwitcher(hubTab) { hubTab = it }
                 Spacer(Modifier.height(2.dp))
             }
             when (hubTab) {
                 0 -> when (tab) {
-                    0 -> RecentsViewV5(filteredGroups, search, { search = it }, phone, onPhoneChange, { onCallNumber(phone) }, filter, { filter = it }, selectedCallerKeys, { key -> selectedCallerKeys = if (key in selectedCallerKeys) selectedCallerKeys - key else selectedCallerKeys + key }, { selectedGroup = it }, { deleteTarget = it }, { bulkDeleteConfirm = true }, { selectedCallerKeys = emptySet() }, onCallNumber)
-                    1 -> ContactsViewV5(filteredContacts, search, { search = it }, onCallNumber, onPhoneChange)
+                    0 -> RecentsViewV5(filteredGroups, search, { search = it }, phone, onPhoneChange, { onCallNumber(phone) }, filter, { filter = it }, selectedCallerKeys, { key -> selectedCallerKeys = if (key in selectedCallerKeys) selectedCallerKeys - key else selectedCallerKeys + key }, { selectedGroup = it }, { deleteTarget = it }, { bulkDeleteConfirm = true }, { selectedCallerKeys = emptySet() }, onCallNumber, { group -> actionHistoryGroup = group; actionContact = null; actionTarget = (group.name ?: "Unknown caller") to group.number })
+                    1 -> ContactsViewV5(filteredContacts, search, { search = it }, onCallNumber, { contact -> actionContact = contact; actionHistoryGroup = null; actionTarget = contact.name to contact.number })
                     else -> KeypadViewV5(phone, onPhoneChange, onDigit, onBackspace, onCall, status)
                 }
                 1 -> SmartMessagesHome { homeContext.startActivity(Intent(homeContext, ProfileActivity::class.java)) }
@@ -214,6 +227,48 @@ private fun SmartCallerHomeV5(phone: String, onPhoneChange: (String) -> Unit, on
         }
     }
     selectedGroup?.let { HistoryDialogV5(it, onCallNumber, { onDeleteCaller(it.number); selectedGroup = null }, { selectedGroup = null }) }
+    actionTarget?.let { target ->
+        AlertDialog(
+            onDismissRequest = { actionTarget = null; actionHistoryGroup = null; actionContact = null },
+            title = { Text(target.first, fontWeight = FontWeight.ExtraBold) },
+            text = { Text(target.second) },
+            confirmButton = {
+                TextButton(onClick = {
+                    val clipboard = homeContext.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                    clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Phone number", target.second))
+                    android.widget.Toast.makeText(homeContext, "Number copied", android.widget.Toast.LENGTH_SHORT).show()
+                    actionTarget = null; actionHistoryGroup = null; actionContact = null
+                }) { Text("Copy number") }
+            },
+            dismissButton = {
+                Column(horizontalAlignment = Alignment.End) {
+                    TextButton(onClick = {
+                        val send = Intent(Intent.ACTION_SEND).apply { type = "text/plain"; putExtra(Intent.EXTRA_TEXT, "${target.first}: ${target.second}") }
+                        homeContext.startActivity(Intent.createChooser(send, "Share number"))
+                    }) { Text("Share") }
+                    TextButton(onClick = {
+                        val digits = target.second.filter { it.isDigit() }
+                        if (digits.isNotBlank()) {
+                            try { homeContext.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://wa.me/$digits"))) }
+                            catch (_: Exception) { android.widget.Toast.makeText(homeContext, "Unable to open WhatsApp", android.widget.Toast.LENGTH_SHORT).show() }
+                        }
+                    }) { Text("WhatsApp") }
+                    TextButton(onClick = { onCallNumber(target.second); actionTarget = null; actionHistoryGroup = null; actionContact = null }) { Text("Call", color = SCGreen, fontWeight = FontWeight.Bold) }
+                    TextButton(onClick = {
+                        actionContact?.let { contact ->
+                            try {
+                                val uri = Uri.withAppendedPath(ContactsContract.Contacts.CONTENT_URI, contact.id)
+                                homeContext.startActivity(Intent(Intent.ACTION_DELETE, uri))
+                            } catch (_: Exception) { android.widget.Toast.makeText(homeContext, "Open Contacts to delete this contact", android.widget.Toast.LENGTH_SHORT).show() }
+                        } ?: actionHistoryGroup?.let { deleteTarget = it }
+                        actionTarget = null; actionHistoryGroup = null; actionContact = null
+                    }) { Text(if (actionContact != null) "Delete contact" else "Delete call history", color = SCRed) }
+                    TextButton(onClick = { hubTab = 1; actionTarget = null; actionHistoryGroup = null; actionContact = null }) { Text("Smart Hub messages") }
+                    TextButton(onClick = { actionTarget = null; actionHistoryGroup = null; actionContact = null }) { Text("Close") }
+                }
+            }
+        )
+    }
     deleteTarget?.let { group ->
         AlertDialog(
             onDismissRequest = { deleteTarget = null },
@@ -305,7 +360,8 @@ private fun RecentsViewV5(
     onDelete: (V5CallGroup) -> Unit,
     onBulkDelete: () -> Unit,
     onClearSelection: () -> Unit,
-    onCallNumber: (String) -> Unit
+    onCallNumber: (String) -> Unit,
+    onSmartActions: (V5CallGroup) -> Unit
 ) {
     val selectionMode = selectedKeys.isNotEmpty()
     Column(Modifier.fillMaxSize()) {
@@ -348,7 +404,7 @@ private fun RecentsViewV5(
                     selectionMode = selectionMode,
                     onOpen = { if (selectionMode) onToggleSelection(group.key) else onOpen(group) },
                     onLongPress = { onToggleSelection(group.key) },
-                    onDelete = { onDelete(group) },
+                    onSmartActions = { onSmartActions(group) },
                     onCall = { onCallNumber(group.number) }
                 )
             }
@@ -357,12 +413,12 @@ private fun RecentsViewV5(
     }
 }
 @Composable
-private fun ContactsViewV5(contacts: List<V5ContactItem>, search: String, onSearch: (String) -> Unit, onCall: (String) -> Unit, onSelect: (String) -> Unit) {
+private fun ContactsViewV5(contacts: List<V5ContactItem>, search: String, onSearch: (String) -> Unit, onCall: (String) -> Unit, onActions: (V5ContactItem) -> Unit) {
     Column(Modifier.fillMaxSize()) {
         SearchBoxV5(search, onSearch, "Search contacts")
         LazyColumn(contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
             item { Text("Contacts", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold) }
-            items(contacts, key = { it.id + normalizedKey(it.number) }) { contact -> ContactCardV5(contact, { onSelect(contact.number) }, { onCall(contact.number) }) }
+            items(contacts, key = { it.id + normalizedKey(it.number) }) { contact -> ContactCardV5(contact, { onActions(contact) }, { onCall(contact.number) }) }
             if (contacts.isEmpty()) item { EmptyStateV5("No contacts found") }
         }
     }
@@ -389,7 +445,7 @@ private fun CallCardV5(
     selectionMode: Boolean,
     onOpen: () -> Unit,
     onLongPress: () -> Unit,
-    onDelete: () -> Unit,
+    onSmartActions: () -> Unit,
     onCall: () -> Unit
 ) {
     val color = if (group.latest.type == "Missed") SCRed else if (group.latest.type == "Dialled") SCBlue else SCGreen
@@ -431,7 +487,7 @@ private fun CallCardV5(
             }
             if (!selectionMode) {
                 Row(horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = onDelete) { Icon(androidx.compose.material.icons.Icons.Default.Delete, contentDescription = "Delete caller", tint = SCRed) }
+                    IconButton(onClick = onSmartActions) { Text("✦", color = SCBlue, fontWeight = FontWeight.ExtraBold, style = MaterialTheme.typography.titleLarge) }
                     FilledIconButton(onClick = onCall, colors = IconButtonDefaults.filledIconButtonColors(containerColor = SCGreen, contentColor = Color.White)) { Text("☎") }
                 }
             }
