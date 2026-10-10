@@ -318,6 +318,34 @@ class InCallServiceImpl : InCallService() {
             builder.setFullScreenIntent(pending, true)
         }
         getSystemService(NotificationManager::class.java).notify(CALL_NOTIFICATION_ID, builder.build())
+        // If an older/secondary SmartCaller notification for this same number still says
+        // "Unknown caller", remove it after the resolved-name notification has been posted.
+        clearStaleUnknownCallerNotifications(handle, displayName)
+    }
+
+    private fun clearStaleUnknownCallerNotifications(number: String, displayName: String) {
+        if (number.isBlank() || isGenericCallerName(displayName)) return
+        val targetDigits = number.filter { it.isDigit() }
+        try {
+            val manager = getSystemService(NotificationManager::class.java)
+            manager.activeNotifications
+                .filter { posted ->
+                    if (posted.id == CALL_NOTIFICATION_ID) return@filter false
+                    val title = posted.notification.extras
+                        ?.getCharSequence(Notification.EXTRA_TITLE)?.toString().orEmpty()
+                    val text = posted.notification.extras
+                        ?.getCharSequence(Notification.EXTRA_TEXT)?.toString().orEmpty()
+                    val postedDigits = text.filter { it.isDigit() }
+                    title.contains("Unknown caller", ignoreCase = true) &&
+                        postedDigits.isNotBlank() &&
+                        (postedDigits == targetDigits ||
+                            (postedDigits.length >= 10 && targetDigits.length >= 10 &&
+                                postedDigits.takeLast(10) == targetDigits.takeLast(10)))
+                }
+                .forEach { posted -> manager.cancel(posted.tag, posted.id) }
+        } catch (_: SecurityException) {
+        } catch (_: Exception) {
+        }
     }
 
     private fun isGenericCallerName(value: String): Boolean = value.trim().lowercase() in setOf(
