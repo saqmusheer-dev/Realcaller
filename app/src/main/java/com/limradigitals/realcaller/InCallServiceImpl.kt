@@ -53,6 +53,10 @@ class InCallServiceImpl : InCallService() {
         CallDiagnostics.markCallAdded(this, number, call.state, direction)
         if (number.isNotBlank()) callerRepository.recordIncomingCall(number)
         showCallNotification(call)
+        // Contact data/permissions may become available just after Telecom reports the call.
+        // Refresh the notification shortly afterwards so the saved name replaces the number.
+        mainHandler.postDelayed({ if (managedCalls.contains(call)) showCallNotification(call) }, 700L)
+        mainHandler.postDelayed({ if (managedCalls.contains(call)) showCallNotification(call) }, 1700L)
         if (call.state == Call.STATE_RINGING) startIncomingRingtone()
         launchCallUi()
     }
@@ -319,20 +323,27 @@ class InCallServiceImpl : InCallService() {
         if (number.isBlank()) return null
         if (checkSelfPermission(android.Manifest.permission.READ_CONTACTS) != android.content.pm.PackageManager.PERMISSION_GRANTED) return null
 
+        val digits = number.filter { it.isDigit() }
         val candidates = linkedSetOf<String>().apply {
-            add(number)
-            val digits = number.filter { it.isDigit() }
+            add(number.trim())
             if (digits.isNotBlank()) add(digits)
             if (digits.length > 10) add(digits.takeLast(10))
+            if (digits.length == 12 && digits.startsWith("91")) add(digits.substring(2))
+            if (digits.length == 11 && digits.startsWith("0")) add(digits.substring(1))
         }
 
         return try {
             for (candidate in candidates) {
-                val uri = Uri.withAppendedPath(ContactsContract.PhoneLookup.CONTENT_FILTER_URI, Uri.encode(candidate))
-                val name = contentResolver.query(uri, arrayOf(ContactsContract.PhoneLookup.DISPLAY_NAME), null, null, null)?.use { c ->
-                    if (c.moveToFirst()) c.getString(0)?.takeIf { it.isNotBlank() && !it.equals(number, ignoreCase = true) } else null
+                val lookupUris = listOf(
+                    Uri.withAppendedPath(ContactsContract.PhoneLookup.CONTENT_FILTER_URI, Uri.encode(candidate)),
+                    Uri.withAppendedPath(ContactsContract.CommonDataKinds.Phone.CONTENT_FILTER_URI, Uri.encode(candidate))
+                )
+                for (uri in lookupUris) {
+                    val name = contentResolver.query(uri, arrayOf(ContactsContract.PhoneLookup.DISPLAY_NAME), null, null, null)?.use { c ->
+                        if (c.moveToFirst()) c.getString(0)?.trim()?.takeIf { it.isNotBlank() && !it.equals(number, ignoreCase = true) && !it.equals(candidate, ignoreCase = true) } else null
+                    }
+                    if (!name.isNullOrBlank()) return name
                 }
-                if (!name.isNullOrBlank()) return name
             }
             null
         } catch (_: SecurityException) { null } catch (_: Exception) { null }
