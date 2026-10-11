@@ -337,14 +337,11 @@ private fun SmartCallerHomeV5(phone: String, onPhoneChange: (String) -> Unit, on
                         item {
                             TextButton(
                                 onClick = {
-                                    val rawDigits = target.second.filter { character -> character.isDigit() }
-                                    val digits: String
-                                    if (rawDigits.length == 10) {
-                                        digits = "91" + rawDigits
-                                    } else if (rawDigits.length == 11 && rawDigits.startsWith("0")) {
-                                        digits = "91" + rawDigits.substring(1)
-                                    } else {
-                                        digits = rawDigits
+                                    val rawDigits = target.second.filter { it.isDigit() }
+                                    val digits = when (rawDigits.length) {
+                                        10 -> "91" + rawDigits
+                                        11 -> if (rawDigits.startsWith("0")) "91" + rawDigits.drop(1) else rawDigits
+                                        else -> rawDigits
                                     }
 
                                     if (digits.isNotBlank()) {
