@@ -119,7 +119,9 @@ class CallActivity : ComponentActivity() {
                         ?: endedNumber
                     proposedName = endedName
                     // Only request identity feedback for numbers not saved in the user's phonebook.
-                    showPostCallFeedback = resolveContactName(endedNumber) == null
+                    val incomingCall = android.os.Build.VERSION.SDK_INT >= 29 &&
+                        previousCall.details.callDirection == Call.Details.DIRECTION_INCOMING
+                    showPostCallFeedback = incomingCall && resolveContactName(endedNumber) == null
                     call = null
                     state = Call.STATE_DISCONNECTED
                     if (showPostCallFeedback) return
