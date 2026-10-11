@@ -162,7 +162,78 @@ tasks.register("patchSmartCallerSource") {
         loadCalls()
         android.os.Handler(mainLooper).postDelayed({ loadCalls() }, 350L)
         val message = when {
-            deleted > 0 -> "Deleted " + deleted + " call-log " + if (deleted == 1) "entry" else "entries"
+            deleted > 0 -> "Deleted ${'deleted call-log ${'
+            deleted == 0 -> "No matching call-log entries found"
+            else -> "Call-log permission is not available"
+        }
+        android.widget.Toast.makeText(this, message, android.widget.Toast.LENGTH_SHORT).show()
+        return deleted
+    }
+
+    private fun verifyOutgoingCall(target: String, selected: android.telecom.PhoneAccountHandle, telecom: TelecomManager) {
+        android.os.Handler(mainLooper).postDelayed({
+            try {
+                if (telecom.isInCall || InCallServiceImpl.instance?.getManagedCalls()?.isNotEmpty() == true) {
+                    CallDiagnostics.markTelecomAccepted(this, target)
+                    return@postDelayed
+                }
+                val defaultAccount = telecom.getDefaultOutgoingPhoneAccount("tel")
+                if (defaultAccount != null && defaultAccount != selected) {
+                    status = "Retrying with system SIM routing…"
+                    CallDiagnostics.markRetry(this, target, "defaultOutgoingPhoneAccount")
+                    val retryExtras = Bundle().apply { putParcelable(TelecomManager.EXTRA_PHONE_ACCOUNT_HANDLE, defaultAccount) }
+                    telecom.placeCall(Uri.fromParts("tel", target, null), retryExtras)
+                    android.os.Handler(mainLooper).postDelayed({
+                        if (telecom.isInCall || InCallServiceImpl.instance?.getManagedCalls()?.isNotEmpty() == true) {
+                            CallDiagnostics.markTelecomAccepted(this, target)
+                            status = "Calling…"
+                        } else {
+                            CallDiagnostics.markFailure(this, "No live call after system SIM retry")
+                            status = "Call did not start — open Call diagnostics"
+                        }
+                    }, 1600L)
+                } else {
+                    CallDiagnostics.markFailure(this, "No live Telecom call after placeCall")
+                    status = "Call did not reach Telecom — open Call diagnostics"
+                }
+            } catch (e: Exception) {
+                CallDiagnostics.markFailure(this, "Verification " + e.javaClass.simpleName + ": " + (e.message ?: "unknown"))
+                status = "Call failed — open Call diagnostics"
+            }
+        }, 1600L)
+    }
+
+"""
+        text = text.substring(0, start) + replacement + text.substring(end)
+
+        if (!text.contains("androidx.compose.material.icons.filled.Call")) {
+            val importMarker = "import androidx.compose.material3.*\n"
+            if (text.contains(importMarker)) text = text.replace(importMarker, importMarker + "import androidx.compose.material.icons.Icons\nimport androidx.compose.material.icons.filled.Call\n")
+        }
+        text = text.replace(Regex("""Text\("(?:☎️|☎|📞)"[^)]*\)"""), "Icon(Icons.Default.Call, contentDescription = \"Call\", tint = Color.White)")
+        text = text.replace("Surface(shape = CircleShape, color = Color(0xFFE4F7EF))", "Surface(shape = CircleShape, color = SCGreen)")
+
+        if (!text.contains("SettingsActivity::class.java")) {
+            val marker = "            Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {"
+            val replacementHeader = """            val settingsContext = androidx.compose.ui.platform.LocalContext.current
+            Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {"""
+            if (text.contains(marker)) text = text.replace(marker, replacementHeader)
+            val surfaceMarker = "                Surface(shape = RoundedCornerShape(50), color = if (isDefault) Color(0xFFE4F7EF) else Color(0xFFFFF0E5)) {"
+            val settingsButton = """                IconButton(onClick = { settingsContext.startActivity(Intent(settingsContext, SettingsActivity::class.java)) }) { Text("⚙", style = MaterialTheme.typography.titleLarge, color = SCBlueDark) }
+                Surface(shape = RoundedCornerShape(50), color = if (isDefault) Color(0xFFE4F7EF) else Color(0xFFFFF0E5)) {"""
+            if (text.contains(surfaceMarker)) text = text.replace(surfaceMarker, settingsButton)
+        }
+        source.writeText(text)
+    }
+}
+
+tasks.register("patchMultiCallUi") {
+    // CallActivity now owns the complete multi-call UI. Keep this task as a
+    // compatibility no-op for existing build wiring.
+}
+
+tasks.named("preBuild") { dependsOn("patchSmartCallerSource", "patchMultiCallUi") }
+ }{if (deleted == 1) "entry" else "entries"}}deleted call-log ${'{if (deleted == 1) "entry" else "entries"}}{if (deleted == 1) "entry" else "entries"}
             deleted == 0 -> "No matching call-log entries found"
             else -> "Call-log permission is not available"
         }
