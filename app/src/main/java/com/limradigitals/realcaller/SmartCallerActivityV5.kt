@@ -238,13 +238,13 @@ private fun SmartCallerHomeV5(phone: String, onPhoneChange: (String) -> Unit, on
         NavigationBarItem(selected = hubTab == 3, onClick = { hubTab = 3 }, icon = { Text("✦") }, label = { Text("Smart") })
     } }) { pad ->
         Column(Modifier.fillMaxSize().background(SCBg).padding(pad)) {
-            Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) { Text("SmartCaller", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.ExtraBold, color = SCBlueDark); Text("Your phone, smarter", color = SCMuted) }
                 IconButton(onClick = { homeContext.startActivity(Intent(homeContext, ProfileActivity::class.java)) }) { Text("ME", color = SCBlueDark, fontWeight = FontWeight.ExtraBold) }
-                Surface(shape = RoundedCornerShape(50), color = if (isDefault) Color(0xFFE4F7EF) else Color(0xFFFFF0E5)) { Text(if (isDefault) "● Ready" else "Setup", color = if (isDefault) SCGreen else Color(0xFFB7651B), fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp)) }
+                Surface(shape = CircleShape, color = if (isDefault) Color(0xFFE4F7EF) else Color(0xFFFFF0E5), modifier = Modifier.size(30.dp), contentColor = if (isDefault) SCGreen else Color(0xFFB7651B)) { Box(contentAlignment = Alignment.Center) { Box(Modifier.size(10.dp).clip(CircleShape).background(if (isDefault) SCGreen else Color(0xFFB7651B))) } }
             }
             if (hasActiveCall) {
-                Surface(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp), shape = RoundedCornerShape(16.dp), color = Color(0xFFE4F7EF)) {
+                Surface(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp), shape = RoundedCornerShape(16.dp), color = Color(0xFFE4F7EF)) {
                     Row(Modifier.fillMaxWidth().clickable(onClick = onReturnToCall).padding(horizontal = 14.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text("●", color = SCGreen, fontWeight = FontWeight.ExtraBold)
                         Spacer(Modifier.width(9.dp))
@@ -255,10 +255,10 @@ private fun SmartCallerHomeV5(phone: String, onPhoneChange: (String) -> Unit, on
             }
             if (hubTab <= 2) {
                 Row(
-                    Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+                    Modifier.fillMaxWidth().padding(horizontal = 16.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Box(Modifier.weight(1f)) { SmartHubSwitcher(hubTab) { hubTab = it } }
+                    Box(Modifier.weight(1f)) { CompactHubSwitcher(hubTab) { hubTab = it } }
                     IconButton(onClick = { showSearch = !showSearch; if (!showSearch) search = "" }) {
                         Icon(Icons.Filled.Search, contentDescription = if (showSearch) "Close search" else "Search", tint = SCBlueDark)
                     }
@@ -530,8 +530,7 @@ private fun NumberDialRowV5(
             modifier = Modifier.weight(1f),
             singleLine = true,
             placeholder = { Text("Type a number to call") },
-            leadingIcon = { Text("☎", color = SCBlue) },
-            shape = RoundedCornerShape(18.dp),
+            shape = RoundedCornerShape(16.dp),
             colors = OutlinedTextFieldDefaults.colors(
                 focusedBorderColor = SCBlue,
                 unfocusedBorderColor = Color(0xFFD9E1EC),
@@ -550,7 +549,7 @@ private fun NumberDialRowV5(
                 disabledContentColor = Color.White
             )
         ) {
-            Text("☎")
+            Icon(Icons.Filled.Call, contentDescription = "Call", modifier = Modifier.size(22.dp))
         }
     }
 }
@@ -602,7 +601,7 @@ private fun RecentsViewV5(
                 }
             }
         }
-        LazyColumn(contentPadding = PaddingValues(horizontal = 20.dp, vertical = 2.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+        LazyColumn(contentPadding = PaddingValues(horizontal = 16.dp, vertical = 1.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
             item {
                 Text(
                     if (selectionMode) "Long-press callers to select" else "Recent calls",
@@ -653,6 +652,45 @@ private fun KeypadViewV5(phone: String, onPhoneChange: (String) -> Unit, onDigit
 private fun AvatarV5(name: String?, color: Color = SCBlue) { Box(Modifier.size(52.dp).clip(CircleShape).background(color.copy(alpha = .10f)).border(1.5.dp, color.copy(alpha = .22f), CircleShape), contentAlignment = Alignment.Center) { Text(initials(name), color = color, fontWeight = FontWeight.ExtraBold) } }
 
 @Composable
+private fun CompactHubSwitcher(selected: Int, onSelect: (Int) -> Unit) {
+    Surface(
+        shape = RoundedCornerShape(22.dp),
+        color = Color.White,
+        shadowElevation = 1.dp,
+        modifier = Modifier.height(48.dp)
+    ) {
+        Row(
+            Modifier.fillMaxWidth().padding(4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(3.dp)
+        ) {
+            val options = listOf(
+                Triple(0, Icons.Filled.Call, "Phone"),
+                Triple(1, Icons.Filled.Chat, "Messages"),
+                Triple(2, Icons.Filled.Info, "Status")
+            )
+            options.forEach { (index, icon, label) ->
+                Surface(
+                    onClick = { onSelect(index) },
+                    shape = RoundedCornerShape(16.dp),
+                    color = if (selected == index) SCBlue else Color.Transparent,
+                    modifier = Modifier.weight(1f).fillMaxHeight()
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            icon,
+                            contentDescription = label,
+                            tint = if (selected == index) Color.White else SCMuted,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun CallCardV5(
     group: V5CallGroup,
     selected: Boolean,
@@ -670,7 +708,7 @@ private fun CallCardV5(
         colors = CardDefaults.cardColors(containerColor = if (selected) Color(0xFFEAF2FF) else Color.White),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
-        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.padding(horizontal = 10.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
             Box {
                 AvatarV5(group.name, color)
                 if (selected) {
@@ -681,10 +719,10 @@ private fun CallCardV5(
                     ) { Text("✓", color = Color.White, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center) }
                 }
             }
-            Spacer(Modifier.width(12.dp))
+            Spacer(Modifier.width(8.dp))
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(group.name ?: "Unknown caller", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                    Text(group.name ?: "Unknown caller", modifier = Modifier.weight(1f), maxLines = 1, softWrap = false, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
                     if (group.calls.size > 1) {
                         Spacer(Modifier.width(7.dp))
                         Surface(shape = CircleShape, color = SCTint) {
@@ -692,16 +730,19 @@ private fun CallCardV5(
                         }
                     }
                 }
-                Text(group.number, color = SCMuted, style = MaterialTheme.typography.bodySmall)
+                Text(group.number, color = SCMuted, maxLines = 1, softWrap = false, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall)
                 Text(
                     "${group.latest.type}  •  ${group.latest.time}  •  ${formatDuration(group.latest.duration)}",
                     color = color,
                     fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    softWrap = false,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Clip,
                     style = MaterialTheme.typography.labelSmall
                 )
             }
             if (!selectionMode) {
-                Row(horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(horizontalArrangement = Arrangement.spacedBy(0.dp), verticalAlignment = Alignment.CenterVertically) {
                     IconButton(onClick = onSmartActions) { Text("✦", color = SCBlue, fontWeight = FontWeight.ExtraBold, style = MaterialTheme.typography.titleLarge) }
                     FilledIconButton(onClick = onCall, colors = IconButtonDefaults.filledIconButtonColors(containerColor = SCGreen, contentColor = Color.White)) { Text("☎") }
                     IconButton(onClick = onMoreActions) { Text("⋮", color = SCMuted, fontWeight = FontWeight.ExtraBold, style = MaterialTheme.typography.titleLarge) }
