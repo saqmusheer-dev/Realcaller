@@ -337,19 +337,35 @@ private fun SmartCallerHomeV5(phone: String, onPhoneChange: (String) -> Unit, on
                         item {
                             TextButton(
                                 onClick = {
-                                    val rawDigits = target.second.filter { it.isDigit() }
-                                    val digits = if (rawDigits.length == 10) {
-                                        "91$rawDigits"
+                                    val rawDigits = target.second.filter { character -> character.isDigit() }
+                                    val digits: String
+                                    if (rawDigits.length == 10) {
+                                        digits = "91" + rawDigits
                                     } else if (rawDigits.length == 11 && rawDigits.startsWith("0")) {
-                                        "91${rawDigits.drop(1)}"
+                                        digits = "91" + rawDigits.substring(1)
                                     } else {
-                                        rawDigits
+                                        digits = rawDigits
                                     }
+
                                     if (digits.isNotBlank()) {
-                                        try { homeContext.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://wa.me/$digits"))) }
-                                        catch (_: Exception) { android.widget.Toast.makeText(homeContext, "Unable to open WhatsApp", android.widget.Toast.LENGTH_SHORT).show() }
+                                        try {
+                                            val whatsappIntent = Intent(
+                                                Intent.ACTION_VIEW,
+                                                Uri.parse("https://wa.me/" + digits)
+                                            )
+                                            homeContext.startActivity(whatsappIntent)
+                                        } catch (exception: Exception) {
+                                            android.widget.Toast.makeText(
+                                                homeContext,
+                                                "Unable to open WhatsApp",
+                                                android.widget.Toast.LENGTH_SHORT
+                                            ).show()
+                                        }
                                     }
-                                    actionTarget = null; actionHistoryGroup = null; actionContact = null
+
+                                    actionTarget = null
+                                    actionHistoryGroup = null
+                                    actionContact = null
                                 },
                                 modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)
                             ) { Text("WhatsApp", modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Start, color = SCText) }
