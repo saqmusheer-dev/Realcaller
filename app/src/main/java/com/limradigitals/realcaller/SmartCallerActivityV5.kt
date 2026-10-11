@@ -32,6 +32,7 @@ import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -208,7 +209,7 @@ private fun initials(name: String?): String { if (name.isNullOrBlank()) return "
 @Composable
 private fun SmartCallerHomeV5(phone: String, onPhoneChange: (String) -> Unit, onDigit: (String) -> Unit, onBackspace: () -> Unit, onCall: () -> Unit, onCallNumber: (String) -> Unit, onDeleteCaller: (String) -> Int, status: String, isDefault: Boolean, hasActiveCall: Boolean, onReturnToCall: () -> Unit, calls: List<V5CallItem>, contacts: List<V5ContactItem>, dialRequestVersion: Int) {
     var tab by remember { mutableStateOf(0) }
-    LaunchedEffect(dialRequestVersion) { if (dialRequestVersion > 0) tab = 2 }; var hubTab by remember { mutableStateOf(0) }; var filter by remember { mutableStateOf("All") }; var search by remember { mutableStateOf("") }; var selectedGroup by remember { mutableStateOf<V5CallGroup?>(null) }; var deleteTarget by remember { mutableStateOf<V5CallGroup?>(null) }; var selectedCallerKeys by remember { mutableStateOf<Set<String>>(emptySet()) }; var bulkDeleteConfirm by remember { mutableStateOf(false) }; var actionTarget by remember { mutableStateOf<Pair<String, String>?>(null) }; var actionHistoryGroup by remember { mutableStateOf<V5CallGroup?>(null) }; var actionContact by remember { mutableStateOf<V5ContactItem?>(null) }; var showUpiApps by remember { mutableStateOf(false) }; var upiTargetNumber by remember { mutableStateOf("") }
+    LaunchedEffect(dialRequestVersion) { if (dialRequestVersion > 0) tab = 2 }; var hubTab by remember { mutableStateOf(0) }; var filter by remember { mutableStateOf("All") }; var search by remember { mutableStateOf("") }; var selectedGroup by remember { mutableStateOf<V5CallGroup?>(null) }; var deleteTarget by remember { mutableStateOf<V5CallGroup?>(null) }; var selectedCallerKeys by remember { mutableStateOf<Set<String>>(emptySet()) }; var bulkDeleteConfirm by remember { mutableStateOf(false) }; var actionTarget by remember { mutableStateOf<Pair<String, String>?>(null) }; var actionHistoryGroup by remember { mutableStateOf<V5CallGroup?>(null) }; var actionContact by remember { mutableStateOf<V5ContactItem?>(null) }; var showUpiApps by remember { mutableStateOf(false) }; var upiTargetNumber by remember { mutableStateOf("") }; var showSearch by remember { mutableStateOf(false) }
     val groups = calls.filter { filter == "All" || it.type == filter }.groupBy { normalizedKey(it.number) }.map { (key, list) -> V5CallGroup(key, list.first().number, list.firstOrNull { !it.name.isNullOrBlank() }?.name, list.sortedByDescending { it.timestamp }, list.any { it.verified }) }.sortedByDescending { it.latest.timestamp }
     val filteredGroups = groups.filter { search.isBlank() || (it.name?.contains(search, true) == true) || it.number.contains(search) }
     val filteredContacts = contacts.filter { search.isBlank() || it.name.contains(search, true) || it.number.contains(search) }
@@ -253,13 +254,21 @@ private fun SmartCallerHomeV5(phone: String, onPhoneChange: (String) -> Unit, on
                 }
             }
             if (hubTab <= 2) {
-                SmartHubSwitcher(hubTab) { hubTab = it }
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(Modifier.weight(1f)) { SmartHubSwitcher(hubTab) { hubTab = it } }
+                    IconButton(onClick = { showSearch = !showSearch; if (!showSearch) search = "" }) {
+                        Icon(Icons.Filled.Search, contentDescription = if (showSearch) "Close search" else "Search", tint = SCBlueDark)
+                    }
+                }
                 Spacer(Modifier.height(2.dp))
             }
             when (hubTab) {
                 0 -> when (tab) {
-                    0 -> RecentsViewV5(filteredGroups, search, { search = it }, phone, onPhoneChange, { onCallNumber(phone) }, filter, { filter = it }, selectedCallerKeys, { key -> selectedCallerKeys = if (key in selectedCallerKeys) selectedCallerKeys - key else selectedCallerKeys + key }, { selectedGroup = it }, { deleteTarget = it }, { bulkDeleteConfirm = true }, { selectedCallerKeys = emptySet() }, onCallNumber, { hubTab = 1 }, { group -> actionHistoryGroup = group; actionContact = null; actionTarget = (group.name ?: "Unknown caller") to group.number })
-                    1 -> ContactsViewV5(filteredContacts, search, { search = it }, onCallNumber, { contact -> actionContact = contact; actionHistoryGroup = null; actionTarget = contact.name to contact.number })
+                    0 -> RecentsViewV5(showSearch, filteredGroups, search, { search = it }, phone, onPhoneChange, { onCallNumber(phone) }, filter, { filter = it }, selectedCallerKeys, { key -> selectedCallerKeys = if (key in selectedCallerKeys) selectedCallerKeys - key else selectedCallerKeys + key }, { selectedGroup = it }, { deleteTarget = it }, { bulkDeleteConfirm = true }, { selectedCallerKeys = emptySet() }, onCallNumber, { hubTab = 1 }, { group -> actionHistoryGroup = group; actionContact = null; actionTarget = (group.name ?: "Unknown caller") to group.number })
+                    1 -> ContactsViewV5(showSearch, filteredContacts, search, { search = it }, onCallNumber, { contact -> actionContact = contact; actionHistoryGroup = null; actionTarget = contact.name to contact.number })
                     else -> KeypadViewV5(phone, onPhoneChange, onDigit, onBackspace, onCall, status)
                 }
                 1 -> SmartMessagesHome { homeContext.startActivity(Intent(homeContext, ProfileActivity::class.java)) }
@@ -453,8 +462,14 @@ private fun SmartCallerHomeV5(phone: String, onPhoneChange: (String) -> Unit, on
                             TextButton(
                                 onClick = {
                                     showUpiApps = false
-                                    try { homeContext.startActivity(launchIntent) }
-                                    catch (_: Exception) { android.widget.Toast.makeText(homeContext, "Unable to open " + label, android.widget.Toast.LENGTH_SHORT).show() }
+                                    try {
+                                        val clipboard = homeContext.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                                        clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Payment recipient phone number", upiTargetNumber))
+                                        android.widget.Toast.makeText(homeContext, "Recipient number copied. The payment app may require you to select or verify the recipient.", android.widget.Toast.LENGTH_LONG).show()
+                                        homeContext.startActivity(launchIntent)
+                                    } catch (_: Exception) {
+                                        android.widget.Toast.makeText(homeContext, "Unable to open " + label, android.widget.Toast.LENGTH_SHORT).show()
+                                    }
                                 },
                                 modifier = Modifier.fillMaxWidth()
                             ) { Text(label, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Start, color = SCText) }
@@ -542,6 +557,7 @@ private fun NumberDialRowV5(
 
 @Composable
 private fun RecentsViewV5(
+    showSearch: Boolean,
     groups: List<V5CallGroup>,
     search: String,
     onSearch: (String) -> Unit,
@@ -575,7 +591,7 @@ private fun RecentsViewV5(
                 ) { Icon(androidx.compose.material.icons.Icons.Default.Delete, contentDescription = "Delete selected callers") }
             }
         } else {
-            SearchBoxV5(search, onSearch, "Search people or numbers")
+            if (showSearch) SearchBoxV5(search, onSearch, "Search people or numbers")
             NumberDialRowV5(phone, onPhoneChange, onCall)
             Row(
                 Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 12.dp),
@@ -611,9 +627,9 @@ private fun RecentsViewV5(
     }
 }
 @Composable
-private fun ContactsViewV5(contacts: List<V5ContactItem>, search: String, onSearch: (String) -> Unit, onCall: (String) -> Unit, onActions: (V5ContactItem) -> Unit) {
+private fun ContactsViewV5(showSearch: Boolean, contacts: List<V5ContactItem>, search: String, onSearch: (String) -> Unit, onCall: (String) -> Unit, onActions: (V5ContactItem) -> Unit) {
     Column(Modifier.fillMaxSize()) {
-        SearchBoxV5(search, onSearch, "Search contacts")
+        if (showSearch) SearchBoxV5(search, onSearch, "Search contacts")
         LazyColumn(contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
             item { Text("Contacts", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold) }
             items(contacts, key = { it.id + normalizedKey(it.number) }) { contact -> ContactCardV5(contact, { onActions(contact) }, { onCall(contact.number) }, { onActions(contact) }) }
