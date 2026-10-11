@@ -1091,9 +1091,9 @@ private fun PostCallFeedbackScreen(
             onClick = onSubmit,
             modifier = Modifier.fillMaxWidth().height(52.dp),
             shape = RoundedCornerShape(16.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = Blue, contentColor = Color.White)
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1769D1), contentColor = Color.White)
         ) {
-            Text("Submit feedback", fontWeight = FontWeight.ExtraBold)
+            Text("Send feedback", fontWeight = FontWeight.ExtraBold)
         }
         OutlinedButton(onClick = onSkip, modifier = Modifier.fillMaxWidth().padding(top = 6.dp), shape = RoundedCornerShape(16.dp)) {
             Text("Skip")
