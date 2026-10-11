@@ -6,7 +6,7 @@
     android:viewportHeight="108">
     <!-- Familiar blue phone-app badge -->
     <path android:fillColor="#1769D1"
-        android:pathData="M54,4 A50,50 0,1 0,54.1,4 Z" />
+        android:pathData="M54,4 A50,50 0,1 0,54,104 A50,50 0,1 0,54,4 Z" />
     <!-- White telephone handset -->
     <path android:fillColor="#FFFFFF"
         android:pathData="M34,28 C31,28 29,31 30,35 C34,53 48,68 66,76 C70,78 74,76 76,73 L81,65 C82,63 81,60 78,59 L68,54 C66,53 64,54 62,56 L58,60 C51,56 46,51 42,44 L46,40 C48,38 48,36 47,34 L42,25 C41,22 38,22 36,24 Z" />
