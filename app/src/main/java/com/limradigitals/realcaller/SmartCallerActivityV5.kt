@@ -59,6 +59,7 @@ class SmartCallerActivityV5 : ComponentActivity() {
     private var status by mutableStateOf("Ready")
     private var isDefault by mutableStateOf(false)
     private var hasActiveCall by mutableStateOf(false)
+    private var dialRequestVersion by mutableIntStateOf(0)
     private val callItems = mutableStateListOf<V5CallItem>()
     private val contacts = mutableStateListOf<V5ContactItem>()
 
@@ -66,9 +67,32 @@ class SmartCallerActivityV5 : ComponentActivity() {
         super.onCreate(savedInstanceState)
         repository = CallerRepository(applicationContext)
         try { repository.seedDemoData() } catch (_: Exception) { }
-        phone = intent?.data?.schemeSpecificPart.orEmpty()
+        handleDialIntent(intent)
         isDefault = defaultDialer()
         requestPermissionsIfNeeded(); loadCalls(); loadContacts(); render()
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleDialIntent(intent)
+    }
+
+    private fun handleDialIntent(source: Intent?) {
+        val incoming = when (source?.action) {
+            Intent.ACTION_DIAL, Intent.ACTION_VIEW -> {
+                val data = source.data
+                if (data?.scheme.equals("tel", ignoreCase = true)) data?.schemeSpecificPart.orEmpty()
+                else source.getStringExtra(TelecomManager.EXTRA_PHONE_NUMBER).orEmpty()
+            }
+            else -> ""
+        }
+        val cleaned = cleanNumber(Uri.decode(incoming))
+        if (cleaned.isNotBlank()) {
+            phone = cleaned
+            status = "Number ready to call"
+            dialRequestVersion++
+        }
     }
 
     override fun onResume() { super.onResume(); isDefault = defaultDialer(); refreshActiveCall(); loadCalls(); loadContacts() }
@@ -78,7 +102,7 @@ class SmartCallerActivityV5 : ComponentActivity() {
     private fun render() {
         setContent {
             MaterialTheme(colorScheme = lightColorScheme(primary = SCBlue, secondary = SCGreen, background = SCBg, surface = Color.White, onBackground = SCText, onSurface = SCText)) {
-                SmartCallerHomeV5(phone, { phone = cleanNumber(it) }, { phone += it }, { if (phone.isNotEmpty()) phone = phone.dropLast(1) }, { placeCall(phone) }, { placeCall(it) }, { deleteCallerHistory(it) }, status, isDefault, hasActiveCall, { startActivity(Intent(this, CallActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)) }, callItems, contacts)
+                SmartCallerHomeV5(phone, { phone = cleanNumber(it) }, { phone += it }, { if (phone.isNotEmpty()) phone = phone.dropLast(1) }, { placeCall(phone) }, { placeCall(it) }, { deleteCallerHistory(it) }, status, isDefault, hasActiveCall, { startActivity(Intent(this, CallActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)) }, callItems, contacts, dialRequestVersion)
             }
         }
     }
@@ -175,8 +199,9 @@ private fun normalizedKey(number: String): String { val d = number.filter { it.i
 private fun initials(name: String?): String { if (name.isNullOrBlank()) return "?"; val p = name.trim().split(Regex("\\s+")).filter { it.isNotBlank() }; return if (p.size > 1) "${p.first().first()}${p.last().first()}".uppercase() else p.first().take(1).uppercase() }
 
 @Composable
-private fun SmartCallerHomeV5(phone: String, onPhoneChange: (String) -> Unit, onDigit: (String) -> Unit, onBackspace: () -> Unit, onCall: () -> Unit, onCallNumber: (String) -> Unit, onDeleteCaller: (String) -> Int, status: String, isDefault: Boolean, hasActiveCall: Boolean, onReturnToCall: () -> Unit, calls: List<V5CallItem>, contacts: List<V5ContactItem>) {
-    var tab by remember { mutableStateOf(0) }; var hubTab by remember { mutableStateOf(0) }; var filter by remember { mutableStateOf("All") }; var search by remember { mutableStateOf("") }; var selectedGroup by remember { mutableStateOf<V5CallGroup?>(null) }; var deleteTarget by remember { mutableStateOf<V5CallGroup?>(null) }; var selectedCallerKeys by remember { mutableStateOf<Set<String>>(emptySet()) }; var bulkDeleteConfirm by remember { mutableStateOf(false) }; var actionTarget by remember { mutableStateOf<Pair<String, String>?>(null) }; var actionHistoryGroup by remember { mutableStateOf<V5CallGroup?>(null) }; var actionContact by remember { mutableStateOf<V5ContactItem?>(null) }; var showUpiApps by remember { mutableStateOf(false) }
+private fun SmartCallerHomeV5(phone: String, onPhoneChange: (String) -> Unit, onDigit: (String) -> Unit, onBackspace: () -> Unit, onCall: () -> Unit, onCallNumber: (String) -> Unit, onDeleteCaller: (String) -> Int, status: String, isDefault: Boolean, hasActiveCall: Boolean, onReturnToCall: () -> Unit, calls: List<V5CallItem>, contacts: List<V5ContactItem>, dialRequestVersion: Int) {
+    var tab by remember { mutableStateOf(0) }
+    LaunchedEffect(dialRequestVersion) { if (dialRequestVersion > 0) tab = 2 } var hubTab by remember { mutableStateOf(0) }; var filter by remember { mutableStateOf("All") }; var search by remember { mutableStateOf("") }; var selectedGroup by remember { mutableStateOf<V5CallGroup?>(null) }; var deleteTarget by remember { mutableStateOf<V5CallGroup?>(null) }; var selectedCallerKeys by remember { mutableStateOf<Set<String>>(emptySet()) }; var bulkDeleteConfirm by remember { mutableStateOf(false) }; var actionTarget by remember { mutableStateOf<Pair<String, String>?>(null) }; var actionHistoryGroup by remember { mutableStateOf<V5CallGroup?>(null) }; var actionContact by remember { mutableStateOf<V5ContactItem?>(null) }; var showUpiApps by remember { mutableStateOf(false) }
     val groups = calls.filter { filter == "All" || it.type == filter }.groupBy { normalizedKey(it.number) }.map { (key, list) -> V5CallGroup(key, list.first().number, list.firstOrNull { !it.name.isNullOrBlank() }?.name, list.sortedByDescending { it.timestamp }, list.any { it.verified }) }.sortedByDescending { it.latest.timestamp }
     val filteredGroups = groups.filter { search.isBlank() || (it.name?.contains(search, true) == true) || it.number.contains(search) }
     val filteredContacts = contacts.filter { search.isBlank() || it.name.contains(search, true) || it.number.contains(search) }
