@@ -378,12 +378,18 @@ private fun SmartCallerHomeV5(phone: String, onPhoneChange: (String) -> Unit, on
                         item {
                             TextButton(
                                 onClick = {
-                                    val businessIntent = try { homeContext.packageManager.getLaunchIntentForPackage("com.whatsapp.w4b") } catch (_: Exception) { null }
-                                    if (businessIntent != null) {
+                                    val digits = target.second.filter { it in '0'..'9' }
+                                    val whatsappNumber = when {
+                                        digits.length == 10 -> "91" + digits
+                                        digits.length == 11 && digits.startsWith("0") -> "91" + digits.drop(1)
+                                        else -> digits
+                                    }
+                                    val businessIntent = Intent(Intent.ACTION_VIEW, Uri.parse("https://wa.me/" + whatsappNumber)).setPackage("com.whatsapp.w4b")
+                                    if (whatsappNumber.isNotBlank() && businessIntent.resolveActivity(homeContext.packageManager) != null) {
                                         try { homeContext.startActivity(businessIntent) }
-                                        catch (_: Exception) { android.widget.Toast.makeText(homeContext, "Unable to open WhatsApp Business", android.widget.Toast.LENGTH_SHORT).show() }
+                                        catch (_: Exception) { android.widget.Toast.makeText(homeContext, "Unable to open WhatsApp Business chat", android.widget.Toast.LENGTH_SHORT).show() }
                                     } else {
-                                        android.widget.Toast.makeText(homeContext, "WhatsApp Business is not installed", android.widget.Toast.LENGTH_SHORT).show()
+                                        android.widget.Toast.makeText(homeContext, "WhatsApp Business is not installed or this number is unavailable", android.widget.Toast.LENGTH_SHORT).show()
                                     }
                                     actionTarget = null; actionHistoryGroup = null; actionContact = null
                                 },
