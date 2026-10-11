@@ -121,7 +121,9 @@ class CallActivity : ComponentActivity() {
                     // Only request identity feedback for numbers not saved in the user's phonebook.
                     val incomingCall = android.os.Build.VERSION.SDK_INT >= 29 &&
                         previousCall.details.callDirection == Call.Details.DIRECTION_INCOMING
-                    showPostCallFeedback = incomingCall && resolveContactName(endedNumber) == null
+                    showPostCallFeedback = incomingCall &&
+                        checkSelfPermission(Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED &&
+                        resolveContactName(endedNumber) == null
                     call = null
                     state = Call.STATE_DISCONNECTED
                     if (showPostCallFeedback) return
