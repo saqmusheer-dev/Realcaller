@@ -21,10 +21,11 @@
         <activity android:name=".ProfileActivity" android:exported="false" />
         <activity android:name=".CallDiagnosticsActivity" android:exported="false" />
         <activity android:name=".CallActivity" android:exported="false" android:showWhenLocked="true" android:turnScreenOn="true" />
-        <activity android:name=".SmartCallerActivityV5" android:exported="true">
+        <activity android:name=".SmartCallerActivityV5" android:exported="true" android:launchMode="singleTop">
             <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
             <intent-filter><action android:name="android.intent.action.DIAL" /><category android:name="android.intent.category.DEFAULT" /></intent-filter>
             <intent-filter><action android:name="android.intent.action.DIAL" /><category android:name="android.intent.category.DEFAULT" /><data android:scheme="tel" /></intent-filter>
+            <intent-filter><action android:name="android.intent.action.VIEW" /><category android:name="android.intent.category.DEFAULT" /><data android:scheme="tel" /></intent-filter>
         </activity>
         <activity android:name=".MainActivity" android:exported="false" />
         <activity android:name=".screening.OverlayTestActivity" android:exported="false" />
