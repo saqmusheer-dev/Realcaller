@@ -644,7 +644,7 @@ private fun KeypadViewV5(phone: String, onPhoneChange: (String) -> Unit, onDigit
         Text(status, color = SCMuted, style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(vertical = 7.dp))
         val rows = listOf(listOf("1","2","3"), listOf("4","5","6"), listOf("7","8","9"), listOf("*","0","#"))
         rows.forEach { row -> Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) { row.forEach { d -> Button(onClick = { onDigit(d) }, modifier = Modifier.size(70.dp), shape = CircleShape, colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = SCText), elevation = ButtonDefaults.buttonElevation(defaultElevation = 2.dp)) { Text(d, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold) } } }; Spacer(Modifier.height(10.dp)) }
-        Button(onClick = onCall, modifier = Modifier.size(68.dp), shape = CircleShape, colors = ButtonDefaults.buttonColors(containerColor = SCGreen), elevation = ButtonDefaults.buttonElevation(defaultElevation = 4.dp)) { Text("☎", color = Color.White, style = MaterialTheme.typography.titleLarge) }
+        Button(onClick = onCall, modifier = Modifier.size(68.dp), shape = CircleShape, colors = ButtonDefaults.buttonColors(containerColor = SCGreen), elevation = ButtonDefaults.buttonElevation(defaultElevation = 4.dp)) { Icon(Icons.Filled.Call, contentDescription = "Call", tint = Color.White, modifier = Modifier.size(24.dp)) }
     }
 }
 
@@ -744,7 +744,7 @@ private fun CallCardV5(
             if (!selectionMode) {
                 Row(horizontalArrangement = Arrangement.spacedBy(0.dp), verticalAlignment = Alignment.CenterVertically) {
                     IconButton(onClick = onSmartActions) { Text("✦", color = SCBlue, fontWeight = FontWeight.ExtraBold, style = MaterialTheme.typography.titleLarge) }
-                    FilledIconButton(onClick = onCall, colors = IconButtonDefaults.filledIconButtonColors(containerColor = SCGreen, contentColor = Color.White)) { Text("☎") }
+                    FilledIconButton(onClick = onCall, colors = IconButtonDefaults.filledIconButtonColors(containerColor = SCGreen, contentColor = Color.White)) { Icon(Icons.Filled.Call, contentDescription = "Call", modifier = Modifier.size(22.dp)) }
                     IconButton(onClick = onMoreActions) { Text("⋮", color = SCMuted, fontWeight = FontWeight.ExtraBold, style = MaterialTheme.typography.titleLarge) }
                 }
             }
