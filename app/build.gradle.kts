@@ -215,7 +215,7 @@ tasks.register("patchSmartCallerSource") {
 
         if (!text.contains("SettingsActivity::class.java")) {
             val marker = "            Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {"
-            val replacementHeader = "            val settingsContext = androidx.compose.ui.platform.LocalContext.current\\n            Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {"
+            val replacementHeader = "            val settingsContext = androidx.compose.ui.platform.LocalContext.current\n            Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {"
             if (text.contains(marker)) text = text.replace(marker, replacementHeader)
             val surfaceMarker = "                Surface(shape = RoundedCornerShape(50), color = if (isDefault) Color(0xFFE4F7EF) else Color(0xFFFFF0E5)) {"
             val settingsButton = """                IconButton(onClick = { settingsContext.startActivity(Intent(settingsContext, SettingsActivity::class.java)) }) { Text("⚙", style = MaterialTheme.typography.titleLarge, color = SCBlueDark) }
