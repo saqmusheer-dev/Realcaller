@@ -25,6 +25,14 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccountBalanceWallet
+import androidx.compose.material.icons.filled.Call
+import androidx.compose.material.icons.filled.Chat
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -59,6 +67,7 @@ class SmartCallerActivityV5 : ComponentActivity() {
     private var status by mutableStateOf("Ready")
     private var isDefault by mutableStateOf(false)
     private var hasActiveCall by mutableStateOf(false)
+    private var dialRequestVersion by mutableIntStateOf(0)
     private val callItems = mutableStateListOf<V5CallItem>()
     private val contacts = mutableStateListOf<V5ContactItem>()
 
@@ -66,9 +75,32 @@ class SmartCallerActivityV5 : ComponentActivity() {
         super.onCreate(savedInstanceState)
         repository = CallerRepository(applicationContext)
         try { repository.seedDemoData() } catch (_: Exception) { }
-        phone = intent?.data?.schemeSpecificPart.orEmpty()
+        handleDialIntent(intent)
         isDefault = defaultDialer()
         requestPermissionsIfNeeded(); loadCalls(); loadContacts(); render()
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleDialIntent(intent)
+    }
+
+    private fun handleDialIntent(source: Intent?) {
+        val incoming = when (source?.action) {
+            Intent.ACTION_DIAL, Intent.ACTION_VIEW -> {
+                val data = source.data
+                if (data?.scheme.equals("tel", ignoreCase = true)) data?.schemeSpecificPart.orEmpty()
+                else source.getStringExtra("android.intent.extra.PHONE_NUMBER").orEmpty()
+            }
+            else -> ""
+        }
+        val cleaned = cleanNumber(Uri.decode(incoming))
+        if (cleaned.isNotBlank()) {
+            phone = cleaned
+            status = "Number ready to call"
+            dialRequestVersion++
+        }
     }
 
     override fun onResume() { super.onResume(); isDefault = defaultDialer(); refreshActiveCall(); loadCalls(); loadContacts() }
@@ -78,7 +110,7 @@ class SmartCallerActivityV5 : ComponentActivity() {
     private fun render() {
         setContent {
             MaterialTheme(colorScheme = lightColorScheme(primary = SCBlue, secondary = SCGreen, background = SCBg, surface = Color.White, onBackground = SCText, onSurface = SCText)) {
-                SmartCallerHomeV5(phone, { phone = cleanNumber(it) }, { phone += it }, { if (phone.isNotEmpty()) phone = phone.dropLast(1) }, { placeCall(phone) }, { placeCall(it) }, { deleteCallerHistory(it) }, status, isDefault, hasActiveCall, { startActivity(Intent(this, CallActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)) }, callItems, contacts)
+                SmartCallerHomeV5(phone, { phone = cleanNumber(it) }, { phone += it }, { if (phone.isNotEmpty()) phone = phone.dropLast(1) }, { placeCall(phone) }, { placeCall(it) }, { deleteCallerHistory(it) }, status, isDefault, hasActiveCall, { startActivity(Intent(this, CallActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)) }, callItems, contacts, dialRequestVersion)
             }
         }
     }
@@ -175,8 +207,9 @@ private fun normalizedKey(number: String): String { val d = number.filter { it.i
 private fun initials(name: String?): String { if (name.isNullOrBlank()) return "?"; val p = name.trim().split(Regex("\\s+")).filter { it.isNotBlank() }; return if (p.size > 1) "${p.first().first()}${p.last().first()}".uppercase() else p.first().take(1).uppercase() }
 
 @Composable
-private fun SmartCallerHomeV5(phone: String, onPhoneChange: (String) -> Unit, onDigit: (String) -> Unit, onBackspace: () -> Unit, onCall: () -> Unit, onCallNumber: (String) -> Unit, onDeleteCaller: (String) -> Int, status: String, isDefault: Boolean, hasActiveCall: Boolean, onReturnToCall: () -> Unit, calls: List<V5CallItem>, contacts: List<V5ContactItem>) {
-    var tab by remember { mutableStateOf(0) }; var hubTab by remember { mutableStateOf(0) }; var filter by remember { mutableStateOf("All") }; var search by remember { mutableStateOf("") }; var selectedGroup by remember { mutableStateOf<V5CallGroup?>(null) }; var deleteTarget by remember { mutableStateOf<V5CallGroup?>(null) }; var selectedCallerKeys by remember { mutableStateOf<Set<String>>(emptySet()) }; var bulkDeleteConfirm by remember { mutableStateOf(false) }; var actionTarget by remember { mutableStateOf<Pair<String, String>?>(null) }; var actionHistoryGroup by remember { mutableStateOf<V5CallGroup?>(null) }; var actionContact by remember { mutableStateOf<V5ContactItem?>(null) }; var showUpiApps by remember { mutableStateOf(false) }
+private fun SmartCallerHomeV5(phone: String, onPhoneChange: (String) -> Unit, onDigit: (String) -> Unit, onBackspace: () -> Unit, onCall: () -> Unit, onCallNumber: (String) -> Unit, onDeleteCaller: (String) -> Int, status: String, isDefault: Boolean, hasActiveCall: Boolean, onReturnToCall: () -> Unit, calls: List<V5CallItem>, contacts: List<V5ContactItem>, dialRequestVersion: Int) {
+    var tab by remember { mutableStateOf(0) }
+    LaunchedEffect(dialRequestVersion) { if (dialRequestVersion > 0) tab = 2 }; var hubTab by remember { mutableStateOf(0) }; var filter by remember { mutableStateOf("All") }; var search by remember { mutableStateOf("") }; var selectedGroup by remember { mutableStateOf<V5CallGroup?>(null) }; var deleteTarget by remember { mutableStateOf<V5CallGroup?>(null) }; var selectedCallerKeys by remember { mutableStateOf<Set<String>>(emptySet()) }; var bulkDeleteConfirm by remember { mutableStateOf(false) }; var actionTarget by remember { mutableStateOf<Pair<String, String>?>(null) }; var actionHistoryGroup by remember { mutableStateOf<V5CallGroup?>(null) }; var actionContact by remember { mutableStateOf<V5ContactItem?>(null) }; var showUpiApps by remember { mutableStateOf(false) }; var upiTargetNumber by remember { mutableStateOf("") }; var showSearch by remember { mutableStateOf(false) }
     val groups = calls.filter { filter == "All" || it.type == filter }.groupBy { normalizedKey(it.number) }.map { (key, list) -> V5CallGroup(key, list.first().number, list.firstOrNull { !it.name.isNullOrBlank() }?.name, list.sortedByDescending { it.timestamp }, list.any { it.verified }) }.sortedByDescending { it.latest.timestamp }
     val filteredGroups = groups.filter { search.isBlank() || (it.name?.contains(search, true) == true) || it.number.contains(search) }
     val filteredContacts = contacts.filter { search.isBlank() || it.name.contains(search, true) || it.number.contains(search) }
@@ -205,13 +238,13 @@ private fun SmartCallerHomeV5(phone: String, onPhoneChange: (String) -> Unit, on
         NavigationBarItem(selected = hubTab == 3, onClick = { hubTab = 3 }, icon = { Text("✦") }, label = { Text("Smart") })
     } }) { pad ->
         Column(Modifier.fillMaxSize().background(SCBg).padding(pad)) {
-            Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) { Text("SmartCaller", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.ExtraBold, color = SCBlueDark); Text("Your phone, smarter", color = SCMuted) }
                 IconButton(onClick = { homeContext.startActivity(Intent(homeContext, ProfileActivity::class.java)) }) { Text("ME", color = SCBlueDark, fontWeight = FontWeight.ExtraBold) }
-                Surface(shape = RoundedCornerShape(50), color = if (isDefault) Color(0xFFE4F7EF) else Color(0xFFFFF0E5)) { Text(if (isDefault) "● Ready" else "Setup", color = if (isDefault) SCGreen else Color(0xFFB7651B), fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp)) }
+                Surface(shape = CircleShape, color = if (isDefault) Color(0xFFE4F7EF) else Color(0xFFFFF0E5), modifier = Modifier.size(30.dp), contentColor = if (isDefault) SCGreen else Color(0xFFB7651B)) { Box(contentAlignment = Alignment.Center) { Box(Modifier.size(10.dp).clip(CircleShape).background(if (isDefault) SCGreen else Color(0xFFB7651B))) } }
             }
             if (hasActiveCall) {
-                Surface(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp), shape = RoundedCornerShape(16.dp), color = Color(0xFFE4F7EF)) {
+                Surface(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp), shape = RoundedCornerShape(16.dp), color = Color(0xFFE4F7EF)) {
                     Row(Modifier.fillMaxWidth().clickable(onClick = onReturnToCall).padding(horizontal = 14.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text("●", color = SCGreen, fontWeight = FontWeight.ExtraBold)
                         Spacer(Modifier.width(9.dp))
@@ -221,13 +254,21 @@ private fun SmartCallerHomeV5(phone: String, onPhoneChange: (String) -> Unit, on
                 }
             }
             if (hubTab <= 2) {
-                SmartHubSwitcher(hubTab) { hubTab = it }
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(Modifier.weight(1f)) { CompactHubSwitcher(hubTab) { hubTab = it } }
+                    IconButton(onClick = { showSearch = !showSearch; if (!showSearch) search = "" }) {
+                        Icon(Icons.Filled.Search, contentDescription = if (showSearch) "Close search" else "Search", tint = SCBlueDark)
+                    }
+                }
                 Spacer(Modifier.height(2.dp))
             }
             when (hubTab) {
                 0 -> when (tab) {
-                    0 -> RecentsViewV5(filteredGroups, search, { search = it }, phone, onPhoneChange, { onCallNumber(phone) }, filter, { filter = it }, selectedCallerKeys, { key -> selectedCallerKeys = if (key in selectedCallerKeys) selectedCallerKeys - key else selectedCallerKeys + key }, { selectedGroup = it }, { deleteTarget = it }, { bulkDeleteConfirm = true }, { selectedCallerKeys = emptySet() }, onCallNumber, { hubTab = 1 }, { group -> actionHistoryGroup = group; actionContact = null; actionTarget = (group.name ?: "Unknown caller") to group.number })
-                    1 -> ContactsViewV5(filteredContacts, search, { search = it }, onCallNumber, { contact -> actionContact = contact; actionHistoryGroup = null; actionTarget = contact.name to contact.number })
+                    0 -> RecentsViewV5(showSearch, filteredGroups, search, { search = it }, phone, onPhoneChange, { onCallNumber(phone) }, filter, { filter = it }, selectedCallerKeys, { key -> selectedCallerKeys = if (key in selectedCallerKeys) selectedCallerKeys - key else selectedCallerKeys + key }, { selectedGroup = it }, { deleteTarget = it }, { bulkDeleteConfirm = true }, { selectedCallerKeys = emptySet() }, onCallNumber, { hubTab = 1 }, { group -> actionHistoryGroup = group; actionContact = null; actionTarget = (group.name ?: "Unknown caller") to group.number })
+                    1 -> ContactsViewV5(showSearch, filteredContacts, search, { search = it }, onCallNumber, { contact -> actionContact = contact; actionHistoryGroup = null; actionTarget = contact.name to contact.number })
                     else -> KeypadViewV5(phone, onPhoneChange, onDigit, onBackspace, onCall, status)
                 }
                 1 -> SmartMessagesHome { homeContext.startActivity(Intent(homeContext, ProfileActivity::class.java)) }
@@ -286,7 +327,7 @@ private fun SmartCallerHomeV5(phone: String, onPhoneChange: (String) -> Unit, on
                                     actionTarget = null; actionHistoryGroup = null; actionContact = null
                                 },
                                 modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)
-                            ) { Text("Details", modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Start, color = SCText) }
+                            ) { Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) { Icon(Icons.Filled.Info, contentDescription = null, tint = SCText); Text("Details", modifier = Modifier.weight(1f), color = SCText) } }
                         }
                         item {
                             TextButton(
@@ -297,7 +338,7 @@ private fun SmartCallerHomeV5(phone: String, onPhoneChange: (String) -> Unit, on
                                     actionTarget = null; actionHistoryGroup = null; actionContact = null
                                 },
                                 modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)
-                            ) { Text("Copy number", modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Start, color = SCText) }
+                            ) { Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) { Icon(Icons.Filled.ContentCopy, contentDescription = null, tint = SCText); Text("Copy number", modifier = Modifier.weight(1f), color = SCText) } }
                         }
                         item {
                             TextButton(
@@ -307,34 +348,62 @@ private fun SmartCallerHomeV5(phone: String, onPhoneChange: (String) -> Unit, on
                                     actionTarget = null; actionHistoryGroup = null; actionContact = null
                                 },
                                 modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)
-                            ) { Text("Share", modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Start, color = SCText) }
+                            ) { Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) { Icon(Icons.Filled.Share, contentDescription = null, tint = SCText); Text("Share", modifier = Modifier.weight(1f), color = SCText) } }
                         }
                         item {
                             TextButton(
                                 onClick = {
-                                    val rawDigits = target.second.filter { it.isDigit() }
-                                    val digits = when {
-                                        rawDigits.length == 10 -> "91$rawDigits"
-                                        rawDigits.length == 11 && rawDigits.startsWith("0") -> "91${rawDigits.drop(1)}"
-                                        else -> rawDigits
+                                    val number = target.second.filter { it in '0'..'9' }
+                                    val whatsappNumber = when {
+                                        number.length == 10 -> "91" + number
+                                        number.length == 11 && number[0] == '0' -> "91" + number.drop(1)
+                                        else -> number
                                     }
-                                    if (digits.isNotBlank()) {
-                                        try { homeContext.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://wa.me/$digits"))) }
-                                        catch (_: Exception) { android.widget.Toast.makeText(homeContext, "Unable to open WhatsApp", android.widget.Toast.LENGTH_SHORT).show() }
+                                    if (whatsappNumber.isNotEmpty()) {
+                                        val link = "https://wa.me/" + whatsappNumber
+                                        try {
+                                            homeContext.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(link)))
+                                        } catch (e: Exception) {
+                                            android.widget.Toast.makeText(homeContext, "Unable to open WhatsApp", android.widget.Toast.LENGTH_SHORT).show()
+                                        }
                                     }
-                                    actionTarget = null; actionHistoryGroup = null; actionContact = null
+                                    actionTarget = null
+                                    actionHistoryGroup = null
+                                    actionContact = null
                                 },
                                 modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)
-                            ) { Text("WhatsApp", modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Start, color = SCText) }
+                            ) { Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) { Icon(Icons.Filled.Chat, contentDescription = null, tint = SCText); Text("WhatsApp", modifier = Modifier.weight(1f), color = SCText) } }
                         }
                         item {
                             TextButton(
                                 onClick = {
+                                    upiTargetNumber = target.second
                                     actionTarget = null; actionHistoryGroup = null; actionContact = null
                                     showUpiApps = true
                                 },
                                 modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)
-                            ) { Text("Pay via UPI", modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Start, color = SCBlue, fontWeight = FontWeight.Bold) }
+                            ) { Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) { Icon(Icons.Filled.AccountBalanceWallet, contentDescription = null, tint = SCBlue); Text("Pay via UPI", modifier = Modifier.weight(1f), color = SCBlue, fontWeight = FontWeight.Bold) } }
+                        }
+                        item {
+                            TextButton(
+                                onClick = {
+                                    val digits = target.second.filter { it in '0'..'9' }
+                                    val whatsappNumber = when {
+                                        digits.length == 10 -> "91" + digits
+                                        digits.length == 11 && digits.startsWith("0") -> "91" + digits.drop(1)
+                                        else -> digits
+                                    }
+                                    val businessIntent = Intent(Intent.ACTION_VIEW, Uri.parse("https://wa.me/" + whatsappNumber)).setPackage("com.whatsapp.w4b")
+                                    if (whatsappNumber.isNotBlank() && businessIntent.resolveActivity(homeContext.packageManager) != null) {
+                                        try { homeContext.startActivity(businessIntent) }
+                                        catch (_: Exception) { android.widget.Toast.makeText(homeContext, "Unable to open WhatsApp Business chat", android.widget.Toast.LENGTH_SHORT).show() }
+                                    } else {
+                                        android.widget.Toast.makeText(homeContext, "WhatsApp Business is not installed or this number is unavailable", android.widget.Toast.LENGTH_SHORT).show()
+                                    }
+                                    actionTarget = null; actionHistoryGroup = null; actionContact = null
+                                },
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)
+                            ) { Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) { Icon(Icons.Filled.Chat, contentDescription = null, tint = SCText); Text("WhatsApp Business", modifier = Modifier.weight(1f), color = SCText) } }
                         }
                         item {
                             TextButton(
@@ -343,7 +412,7 @@ private fun SmartCallerHomeV5(phone: String, onPhoneChange: (String) -> Unit, on
                                     actionTarget = null; actionHistoryGroup = null; actionContact = null
                                 },
                                 modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)
-                            ) { Text("Call", modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Start, color = SCGreen, fontWeight = FontWeight.Bold) }
+                            ) { Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) { Icon(Icons.Filled.Call, contentDescription = null, tint = SCGreen); Text("Call", modifier = Modifier.weight(1f), color = SCGreen, fontWeight = FontWeight.Bold) } }
                         }
                         item {
                             TextButton(
@@ -388,13 +457,19 @@ private fun SmartCallerHomeV5(phone: String, onPhoneChange: (String) -> Unit, on
                     Text("No supported payment apps were found. Install Google Pay, PhonePe, Paytm or BHIM and try again.")
                 } else {
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text("Choose a payment app. Select the recipient inside that app.", color = SCMuted, style = MaterialTheme.typography.bodySmall)
+                        Text("Payment recipient number: $upiTargetNumber. Choose a payment app, find this number using its supported contacts/phone-number payment flow, and confirm the recipient before paying.", color = SCMuted, style = MaterialTheme.typography.bodySmall)
                         supportedUpiApps.forEach { (packageName, label, launchIntent) ->
                             TextButton(
                                 onClick = {
                                     showUpiApps = false
-                                    try { homeContext.startActivity(launchIntent) }
-                                    catch (_: Exception) { android.widget.Toast.makeText(homeContext, "Unable to open " + label, android.widget.Toast.LENGTH_SHORT).show() }
+                                    try {
+                                        val clipboard = homeContext.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                                        clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Payment recipient phone number", upiTargetNumber))
+                                        android.widget.Toast.makeText(homeContext, "Recipient number copied. The payment app may require you to select or verify the recipient.", android.widget.Toast.LENGTH_LONG).show()
+                                        homeContext.startActivity(launchIntent)
+                                    } catch (_: Exception) {
+                                        android.widget.Toast.makeText(homeContext, "Unable to open " + label, android.widget.Toast.LENGTH_SHORT).show()
+                                    }
                                 },
                                 modifier = Modifier.fillMaxWidth()
                             ) { Text(label, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Start, color = SCText) }
@@ -455,8 +530,7 @@ private fun NumberDialRowV5(
             modifier = Modifier.weight(1f),
             singleLine = true,
             placeholder = { Text("Type a number to call") },
-            leadingIcon = { Text("☎", color = SCBlue) },
-            shape = RoundedCornerShape(18.dp),
+            shape = RoundedCornerShape(16.dp),
             colors = OutlinedTextFieldDefaults.colors(
                 focusedBorderColor = SCBlue,
                 unfocusedBorderColor = Color(0xFFD9E1EC),
@@ -475,13 +549,14 @@ private fun NumberDialRowV5(
                 disabledContentColor = Color.White
             )
         ) {
-            Text("☎")
+            Icon(Icons.Filled.Call, contentDescription = "Call", modifier = Modifier.size(22.dp))
         }
     }
 }
 
 @Composable
 private fun RecentsViewV5(
+    showSearch: Boolean,
     groups: List<V5CallGroup>,
     search: String,
     onSearch: (String) -> Unit,
@@ -515,7 +590,7 @@ private fun RecentsViewV5(
                 ) { Icon(androidx.compose.material.icons.Icons.Default.Delete, contentDescription = "Delete selected callers") }
             }
         } else {
-            SearchBoxV5(search, onSearch, "Search people or numbers")
+            if (showSearch) SearchBoxV5(search, onSearch, "Search people or numbers")
             NumberDialRowV5(phone, onPhoneChange, onCall)
             Row(
                 Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 12.dp),
@@ -526,7 +601,7 @@ private fun RecentsViewV5(
                 }
             }
         }
-        LazyColumn(contentPadding = PaddingValues(horizontal = 20.dp, vertical = 2.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+        LazyColumn(contentPadding = PaddingValues(horizontal = 16.dp, vertical = 1.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
             item {
                 Text(
                     if (selectionMode) "Long-press callers to select" else "Recent calls",
@@ -551,9 +626,9 @@ private fun RecentsViewV5(
     }
 }
 @Composable
-private fun ContactsViewV5(contacts: List<V5ContactItem>, search: String, onSearch: (String) -> Unit, onCall: (String) -> Unit, onActions: (V5ContactItem) -> Unit) {
+private fun ContactsViewV5(showSearch: Boolean, contacts: List<V5ContactItem>, search: String, onSearch: (String) -> Unit, onCall: (String) -> Unit, onActions: (V5ContactItem) -> Unit) {
     Column(Modifier.fillMaxSize()) {
-        SearchBoxV5(search, onSearch, "Search contacts")
+        if (showSearch) SearchBoxV5(search, onSearch, "Search contacts")
         LazyColumn(contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
             item { Text("Contacts", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold) }
             items(contacts, key = { it.id + normalizedKey(it.number) }) { contact -> ContactCardV5(contact, { onActions(contact) }, { onCall(contact.number) }, { onActions(contact) }) }
@@ -569,12 +644,51 @@ private fun KeypadViewV5(phone: String, onPhoneChange: (String) -> Unit, onDigit
         Text(status, color = SCMuted, style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(vertical = 7.dp))
         val rows = listOf(listOf("1","2","3"), listOf("4","5","6"), listOf("7","8","9"), listOf("*","0","#"))
         rows.forEach { row -> Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) { row.forEach { d -> Button(onClick = { onDigit(d) }, modifier = Modifier.size(70.dp), shape = CircleShape, colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = SCText), elevation = ButtonDefaults.buttonElevation(defaultElevation = 2.dp)) { Text(d, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold) } } }; Spacer(Modifier.height(10.dp)) }
-        Button(onClick = onCall, modifier = Modifier.size(68.dp), shape = CircleShape, colors = ButtonDefaults.buttonColors(containerColor = SCGreen), elevation = ButtonDefaults.buttonElevation(defaultElevation = 4.dp)) { Text("☎", color = Color.White, style = MaterialTheme.typography.titleLarge) }
+        Button(onClick = onCall, modifier = Modifier.size(68.dp), shape = CircleShape, colors = ButtonDefaults.buttonColors(containerColor = SCGreen), elevation = ButtonDefaults.buttonElevation(defaultElevation = 4.dp)) { Icon(Icons.Filled.Call, contentDescription = "Call", tint = Color.White, modifier = Modifier.size(24.dp)) }
     }
 }
 
 @Composable
 private fun AvatarV5(name: String?, color: Color = SCBlue) { Box(Modifier.size(52.dp).clip(CircleShape).background(color.copy(alpha = .10f)).border(1.5.dp, color.copy(alpha = .22f), CircleShape), contentAlignment = Alignment.Center) { Text(initials(name), color = color, fontWeight = FontWeight.ExtraBold) } }
+
+@Composable
+private fun CompactHubSwitcher(selected: Int, onSelect: (Int) -> Unit) {
+    Surface(
+        shape = RoundedCornerShape(22.dp),
+        color = Color.White,
+        shadowElevation = 1.dp,
+        modifier = Modifier.height(48.dp)
+    ) {
+        Row(
+            Modifier.fillMaxWidth().padding(4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(3.dp)
+        ) {
+            val options = listOf(
+                Triple(0, Icons.Filled.Call, "Phone"),
+                Triple(1, Icons.Filled.Chat, "Messages"),
+                Triple(2, Icons.Filled.Info, "Status")
+            )
+            options.forEach { (index, icon, label) ->
+                Surface(
+                    onClick = { onSelect(index) },
+                    shape = RoundedCornerShape(16.dp),
+                    color = if (selected == index) SCBlue else Color.Transparent,
+                    modifier = Modifier.weight(1f).fillMaxHeight()
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            icon,
+                            contentDescription = label,
+                            tint = if (selected == index) Color.White else SCMuted,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
 
 @Composable
 private fun CallCardV5(
@@ -594,7 +708,7 @@ private fun CallCardV5(
         colors = CardDefaults.cardColors(containerColor = if (selected) Color(0xFFEAF2FF) else Color.White),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
-        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.padding(horizontal = 10.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
             Box {
                 AvatarV5(group.name, color)
                 if (selected) {
@@ -605,10 +719,10 @@ private fun CallCardV5(
                     ) { Text("✓", color = Color.White, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center) }
                 }
             }
-            Spacer(Modifier.width(12.dp))
+            Spacer(Modifier.width(8.dp))
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(group.name ?: "Unknown caller", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                    Text(group.name ?: "Unknown caller", modifier = Modifier.weight(1f), maxLines = 1, softWrap = false, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
                     if (group.calls.size > 1) {
                         Spacer(Modifier.width(7.dp))
                         Surface(shape = CircleShape, color = SCTint) {
@@ -616,18 +730,21 @@ private fun CallCardV5(
                         }
                     }
                 }
-                Text(group.number, color = SCMuted, style = MaterialTheme.typography.bodySmall)
+                Text(group.number, color = SCMuted, maxLines = 1, softWrap = false, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall)
                 Text(
                     "${group.latest.type}  •  ${group.latest.time}  •  ${formatDuration(group.latest.duration)}",
                     color = color,
                     fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    softWrap = false,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Clip,
                     style = MaterialTheme.typography.labelSmall
                 )
             }
             if (!selectionMode) {
-                Row(horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(horizontalArrangement = Arrangement.spacedBy(0.dp), verticalAlignment = Alignment.CenterVertically) {
                     IconButton(onClick = onSmartActions) { Text("✦", color = SCBlue, fontWeight = FontWeight.ExtraBold, style = MaterialTheme.typography.titleLarge) }
-                    FilledIconButton(onClick = onCall, colors = IconButtonDefaults.filledIconButtonColors(containerColor = SCGreen, contentColor = Color.White)) { Text("☎") }
+                    FilledIconButton(onClick = onCall, colors = IconButtonDefaults.filledIconButtonColors(containerColor = SCGreen, contentColor = Color.White)) { Icon(Icons.Filled.Call, contentDescription = "Call", modifier = Modifier.size(22.dp)) }
                     IconButton(onClick = onMoreActions) { Text("⋮", color = SCMuted, fontWeight = FontWeight.ExtraBold, style = MaterialTheme.typography.titleLarge) }
                 }
             }
@@ -640,7 +757,7 @@ private fun ContactCardV5(contact: V5ContactItem, onSelect: () -> Unit, onCall: 
         Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
             AvatarV5(contact.name); Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) { Text(contact.name, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium); Text(contact.number, color = SCMuted, style = MaterialTheme.typography.bodySmall); Text("Saved contact", color = SCGreen, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.labelSmall) }
-            FilledIconButton(onClick = onCall, colors = IconButtonDefaults.filledIconButtonColors(containerColor = SCGreen, contentColor = Color.White)) { Text("☎") }
+            FilledIconButton(onClick = onCall, colors = IconButtonDefaults.filledIconButtonColors(containerColor = SCGreen, contentColor = Color.White)) { Icon(Icons.Filled.Call, contentDescription = "Call", modifier = Modifier.size(22.dp)) }
             IconButton(onClick = onMoreActions) { Text("⋮", color = SCMuted, fontWeight = FontWeight.ExtraBold, style = MaterialTheme.typography.titleLarge) }
         }
     }

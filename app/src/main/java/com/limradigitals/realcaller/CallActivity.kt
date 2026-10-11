@@ -87,6 +87,13 @@ class CallActivity : ComponentActivity() {
     private var quickContacts by mutableStateOf<List<QuickContactEntry>>(emptyList())
     private var quickCalls by mutableStateOf<List<QuickCallEntry>>(emptyList())
     private var lastQuickState = Call.STATE_DISCONNECTED
+    private var showPostCallFeedback by mutableStateOf(false)
+    private var endedNumber by mutableStateOf("")
+    private var endedName by mutableStateOf("")
+    private var proposedName by mutableStateOf("")
+    private var nameCorrect by mutableStateOf<Boolean?>(null)
+    private var businessType by mutableStateOf<Boolean?>(null)
+    private var spamReport by mutableStateOf(false)
     private var recorder: MediaRecorder? = null
     private var recordingFile: File? = null
     private val handler = Handler(Looper.getMainLooper())
@@ -99,22 +106,44 @@ class CallActivity : ComponentActivity() {
     private val poller = object : Runnable {
         override fun run() {
             val active = InCallServiceImpl.currentCall
+            if (active == null) {
+                val previousCall = call
+                val previousState = state
+                stopRecording()
+                if (previousCall != null &&
+                    (previousState == Call.STATE_ACTIVE || previousState == Call.STATE_HOLDING)
+                ) {
+                    endedNumber = previousCall.details.handle?.schemeSpecificPart.orEmpty()
+                    endedName = resolvedName
+                        ?: previousCall.details.contactDisplayName?.takeIf { it.isNotBlank() }
+                        ?: endedNumber
+                    proposedName = endedName
+                    // Only request identity feedback for numbers not saved in the user's phonebook.
+                    val incomingCall = android.os.Build.VERSION.SDK_INT >= 29 &&
+                        previousCall.details.callDirection == Call.Details.DIRECTION_INCOMING
+                    showPostCallFeedback = incomingCall &&
+                        checkSelfPermission(Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED &&
+                        resolveContactName(endedNumber) == null
+                    call = null
+                    state = Call.STATE_DISCONNECTED
+                    if (showPostCallFeedback) return
+                    finish()
+                    return
+                }
+                finish()
+                return
+            }
             call = active
-            state = active?.state ?: Call.STATE_DISCONNECTED
+            state = active.state
             if (state != lastQuickState) {
                 lastQuickState = state
                 if (state == Call.STATE_HOLDING || state == Call.STATE_ACTIVE) refreshQuickCallChoices()
             }
-            resolvedName = active?.let { resolveContactName(it.details.handle?.schemeSpecificPart.orEmpty()) }
-            val number = active?.details?.handle?.schemeSpecificPart.orEmpty()
+            resolvedName = active.let { resolveContactName(it.details.handle?.schemeSpecificPart.orEmpty()) }
+            val number = active.details.handle?.schemeSpecificPart.orEmpty()
             if (number != lastLookupNumber) {
                 lastLookupNumber = number
                 callerRecord = if (number.isNotBlank()) callerRepository.lookup(number) else null
-            }
-            if (active == null) {
-                stopRecording()
-                finish()
-                return
             }
             handler.postDelayed(this, 400)
         }
@@ -133,7 +162,22 @@ class CallActivity : ComponentActivity() {
         window.decorView.systemUiVisibility = 0
         setContent {
             Surface(color = Bg) {
-                CallScreen(
+                if (showPostCallFeedback) {
+                    PostCallFeedbackScreen(
+                        callerName = endedName,
+                        number = endedNumber,
+                        proposedName = proposedName,
+                        onProposedNameChange = { proposedName = it },
+                        nameCorrect = nameCorrect,
+                        onNameCorrectChange = { nameCorrect = it },
+                        businessType = businessType,
+                        onBusinessTypeChange = { businessType = it },
+                        spamReport = spamReport,
+                        onSpamReportChange = { spamReport = it },
+                        onSkip = { finish() },
+                        onSubmit = { savePostCallFeedback(); finish() }
+                    )
+                } else CallScreen(
                     call = call,
                     state = state,
                     contactName = resolvedName,
@@ -193,6 +237,21 @@ class CallActivity : ComponentActivity() {
             return true
         }
         return super.dispatchKeyEvent(event)
+    }
+
+    private fun savePostCallFeedback() {
+        val prefs = getSharedPreferences("smartcaller_feedback_queue", MODE_PRIVATE)
+        val id = "feedback_" + System.currentTimeMillis()
+        // Keep feedback locally queued until the shared SmartCaller feedback API is connected.
+        prefs.edit()
+            .putString("${id}_number", endedNumber)
+            .putString("${id}_display_name", endedName)
+            .putString("${id}_suggested_name", proposedName.trim())
+            .putString("${id}_name_correct", nameCorrect?.toString() ?: "not_answered")
+            .putString("${id}_is_business", businessType?.toString() ?: "not_answered")
+            .putBoolean("${id}_spam_report", spamReport)
+            .putString("${id}_status", "pending_sync")
+            .apply()
     }
 
     private fun holdCurrentCall() {
@@ -950,3 +1009,96 @@ private fun InCallDialpad(
     }
 }
 
+
+
+@androidx.compose.runtime.Composable
+private fun PostCallFeedbackScreen(
+    callerName: String,
+    number: String,
+    proposedName: String,
+    onProposedNameChange: (String) -> Unit,
+    nameCorrect: Boolean?,
+    onNameCorrectChange: (Boolean?) -> Unit,
+    businessType: Boolean?,
+    onBusinessTypeChange: (Boolean?) -> Unit,
+    spamReport: Boolean,
+    onSpamReportChange: (Boolean) -> Unit,
+    onSkip: () -> Unit,
+    onSubmit: () -> Unit
+) {
+    Column(
+        modifier = Modifier.fillMaxSize().background(Bg).verticalScroll(rememberScrollState()).padding(20.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Spacer(Modifier.height(26.dp))
+        Surface(shape = CircleShape, color = Color(0xFFE5F0FF), modifier = Modifier.size(76.dp)) {
+            Box(contentAlignment = Alignment.Center) {
+                Text("✓", color = Blue, style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.ExtraBold)
+            }
+        }
+        Spacer(Modifier.height(12.dp))
+        Text("Call ended", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold, color = Blue)
+        Text("Help make SmartCaller more trustworthy", color = Color(0xFF687684), textAlign = TextAlign.Center)
+        Spacer(Modifier.height(20.dp))
+        Surface(shape = RoundedCornerShape(22.dp), color = Color.White, shadowElevation = 2.dp, modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(18.dp)) {
+                Text(callerName.ifBlank { "Unknown caller" }, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                Text(number, color = Color(0xFF687684))
+                Spacer(Modifier.height(18.dp))
+                Text("Is this caller's name correct?", fontWeight = FontWeight.Bold)
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        onClick = { onNameCorrectChange(true) },
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.buttonColors(containerColor = if (nameCorrect == true) Green else Color(0xFFEAF7F0), contentColor = if (nameCorrect == true) Color.White else Green)
+                    ) { Text("Yes, correct") }
+                    OutlinedButton(onClick = { onNameCorrectChange(false) }, modifier = Modifier.weight(1f)) { Text("No, correct it") }
+                }
+                if (nameCorrect == false) {
+                    androidx.compose.material3.OutlinedTextField(
+                        value = proposedName,
+                        onValueChange = onProposedNameChange,
+                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                        label = { Text("Suggest correct name") },
+                        singleLine = true
+                    )
+                }
+                Spacer(Modifier.height(18.dp))
+                Text("Is this a business?", fontWeight = FontWeight.Bold)
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = { onBusinessTypeChange(true) }, modifier = Modifier.weight(1f)) { Text("Business") }
+                    OutlinedButton(onClick = { onBusinessTypeChange(false) }, modifier = Modifier.weight(1f)) { Text("Personal number") }
+                }
+                Spacer(Modifier.height(14.dp))
+                androidx.compose.material3.Surface(
+                    onClick = { onSpamReportChange(!spamReport) },
+                    shape = RoundedCornerShape(14.dp),
+                    color = if (spamReport) Color(0xFFFFE8E6) else Color(0xFFF5F7FA),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(Modifier.padding(13.dp), verticalAlignment = Alignment.CenterVertically) {
+                        androidx.compose.material3.Checkbox(checked = spamReport, onCheckedChange = onSpamReportChange)
+                        Column {
+                            Text("Report spam or fraud", color = SpamRed, fontWeight = FontWeight.Bold)
+                            Text("Only report if you believe this number is suspicious.", color = Color(0xFF687684), style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                }
+            }
+        }
+        Spacer(Modifier.height(18.dp))
+        Button(
+            onClick = onSubmit,
+            modifier = Modifier.fillMaxWidth().height(52.dp),
+            shape = RoundedCornerShape(16.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1769D1), contentColor = Color.White)
+        ) {
+            Text("Send feedback", fontWeight = FontWeight.ExtraBold)
+        }
+        OutlinedButton(onClick = onSkip, modifier = Modifier.fillMaxWidth().padding(top = 6.dp), shape = RoundedCornerShape(16.dp)) {
+            Text("Skip")
+        }
+        Spacer(Modifier.height(12.dp))
+        Text("Feedback is saved on this device for now; shared caller-ID updates need a server connection.", color = Color(0xFF687684), style = MaterialTheme.typography.labelSmall, textAlign = TextAlign.Center)
+    }
+}
