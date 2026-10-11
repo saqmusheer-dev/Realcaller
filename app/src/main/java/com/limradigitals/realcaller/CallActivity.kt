@@ -118,9 +118,12 @@ class CallActivity : ComponentActivity() {
                         ?: previousCall.details.contactDisplayName?.takeIf { it.isNotBlank() }
                         ?: endedNumber
                     proposedName = endedName
-                    showPostCallFeedback = true
+                    // Only request identity feedback for numbers not saved in the user's phonebook.
+                    showPostCallFeedback = resolveContactName(endedNumber) == null
                     call = null
                     state = Call.STATE_DISCONNECTED
+                    if (showPostCallFeedback) return
+                    finish()
                     return
                 }
                 finish()
@@ -1080,7 +1083,12 @@ private fun PostCallFeedbackScreen(
             }
         }
         Spacer(Modifier.height(18.dp))
-        Button(onClick = onSubmit, modifier = Modifier.fillMaxWidth().height(52.dp), shape = RoundedCornerShape(16.dp)) {
+        Button(
+            onClick = onSubmit,
+            modifier = Modifier.fillMaxWidth().height(52.dp),
+            shape = RoundedCornerShape(16.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = Blue, contentColor = Color.White)
+        ) {
             Text("Submit feedback", fontWeight = FontWeight.ExtraBold)
         }
         OutlinedButton(onClick = onSkip, modifier = Modifier.fillMaxWidth().padding(top = 6.dp), shape = RoundedCornerShape(16.dp)) {
