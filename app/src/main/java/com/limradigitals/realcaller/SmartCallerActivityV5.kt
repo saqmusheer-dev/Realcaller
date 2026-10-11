@@ -83,7 +83,7 @@ class SmartCallerActivityV5 : ComponentActivity() {
             Intent.ACTION_DIAL, Intent.ACTION_VIEW -> {
                 val data = source.data
                 if (data?.scheme.equals("tel", ignoreCase = true)) data?.schemeSpecificPart.orEmpty()
-                else source.getStringExtra(TelecomManager.EXTRA_PHONE_NUMBER).orEmpty()
+                else source.getStringExtra("android.intent.extra.PHONE_NUMBER").orEmpty()
             }
             else -> ""
         }
@@ -338,10 +338,12 @@ private fun SmartCallerHomeV5(phone: String, onPhoneChange: (String) -> Unit, on
                             TextButton(
                                 onClick = {
                                     val rawDigits = target.second.filter { it.isDigit() }
-                                    val digits = when {
-                                        rawDigits.length == 10 -> "91$rawDigits"
-                                        rawDigits.length == 11 && rawDigits.startsWith("0") -> "91${rawDigits.drop(1)}"
-                                        else -> rawDigits
+                                    val digits = if (rawDigits.length == 10) {
+                                        "91$rawDigits"
+                                    } else if (rawDigits.length == 11 && rawDigits.startsWith("0")) {
+                                        "91${rawDigits.drop(1)}"
+                                    } else {
+                                        rawDigits
                                     }
                                     if (digits.isNotBlank()) {
                                         try { homeContext.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://wa.me/$digits"))) }
