@@ -757,7 +757,7 @@ private fun ContactCardV5(contact: V5ContactItem, onSelect: () -> Unit, onCall: 
         Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
             AvatarV5(contact.name); Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) { Text(contact.name, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium); Text(contact.number, color = SCMuted, style = MaterialTheme.typography.bodySmall); Text("Saved contact", color = SCGreen, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.labelSmall) }
-            FilledIconButton(onClick = onCall, colors = IconButtonDefaults.filledIconButtonColors(containerColor = SCGreen, contentColor = Color.White)) { Text("☎") }
+            FilledIconButton(onClick = onCall, colors = IconButtonDefaults.filledIconButtonColors(containerColor = SCGreen, contentColor = Color.White)) { Icon(Icons.Filled.Call, contentDescription = "Call", modifier = Modifier.size(22.dp)) }
             IconButton(onClick = onMoreActions) { Text("⋮", color = SCMuted, fontWeight = FontWeight.ExtraBold, style = MaterialTheme.typography.titleLarge) }
         }
     }
